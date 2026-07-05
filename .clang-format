@@ -1,0 +1,13 @@
+BasedOnStyle: Microsoft
+
+UseTab: Never
+IndentWidth: 4
+ColumnLimit: 0
+IndentCaseLabels: false
+
+BreakBeforeBraces: Allman
+AllowShortIfStatementsOnASingleLine: true
+PointerAlignment: Left
+SpaceAroundPointerQualifiers: Default
+QualifierAlignment: Custom
+QualifierOrder: [inline, static, type, const]

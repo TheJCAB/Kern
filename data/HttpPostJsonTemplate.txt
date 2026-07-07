@@ -1,0 +1,7 @@
+POST @@endpointPath@@ HTTP/1.1
+Host: @@endpointHost@@:@@endpointPort@@
+Content-Type: application/json
+Content-Length: @@payloadSize@@
+Connection: close
+
+@@payload@@

@@ -1,3 +1,7 @@
+
+#include "FileUtilities.h"
+#include "StringUtilities.h"
+
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -7,10 +11,12 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -23,117 +29,25 @@ struct ToolCall
     std::string content;
 };
 
-std::string escape_json_string(std::string const& input)
-{
-    std::string out;
-    for (char const c : input)
-    {
-        switch (c)
-        {
-        case '"':
-            out += "\\\"";
-            break;
-        case '\\':
-            out += "\\\\";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        default:
-            out.push_back(c);
-            break;
-        }
-    }
-    return out;
-}
-
-std::string unescape_json_string(std::string const& input)
-{
-    std::string out;
-    for (std::size_t i = 0; i < input.size(); ++i)
-    {
-        if (input[i] == '\\' && i + 1 < input.size())
-        {
-            ++i;
-            switch (input[i])
-            {
-            case '"':
-                out.push_back('"');
-                break;
-            case '\\':
-                out.push_back('\\');
-                break;
-            case 'n':
-                out.push_back('\n');
-                break;
-            case 'r':
-                out.push_back('\r');
-                break;
-            case 't':
-                out.push_back('\t');
-                break;
-            default:
-                out.push_back(input[i]);
-                break;
-            }
-        }
-        else
-        {
-            out.push_back(input[i]);
-        }
-    }
-    return out;
-}
-
-std::string read_text_file(std::filesystem::path const& path)
-{
-    std::ifstream input(path);
-    if (!input)
-    {
-        return "[read_file] error: could not open file";
-    }
-    std::ostringstream buffer;
-    buffer << input.rdbuf();
-    return buffer.str();
-}
-
-std::string write_text_file(std::filesystem::path const& path, std::string const& content)
-{
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream output(path, std::ios::trunc);
-    if (!output)
-    {
-        return "[write_file] error: could not write file";
-    }
-    output << content;
-    return "[write_file] ok";
-}
-
-ToolCall parse_tool_call(std::string const& text)
+ToolCall ParseToolCall(std::string_view const text)
 {
     ToolCall tool;
     std::regex json_regex(
         R"(\{\s*\"tool\"\s*:\s*\"([^\"]+)\"\s*,\s*\"path\"\s*:\s*\"([^\"]*)\"(?:,\s*\"content\"\s*:\s*\"([^\"]*)\")?\s*\})");
-    std::smatch match;
-    if (std::regex_search(text, match, json_regex))
+    std::cmatch match;
+    if (std::regex_search(text.begin(), text.end(), match, json_regex))
     {
         tool.name = match[1].str();
-        tool.path = unescape_json_string(match[2].str());
+        tool.path = UnescapeJsonString(match[2].str());
         if (match[3].matched)
         {
-            tool.content = unescape_json_string(match[3].str());
+            tool.content = UnescapeJsonString(match[3].str());
         }
         return tool;
     }
 
     std::regex simple_regex(R"(^\s*TOOL\s+([A-Za-z_]+)\s+(.+)$)");
-    if (std::regex_search(text, match, simple_regex))
+    if (std::regex_search(text.begin(), text.end(), match, simple_regex))
     {
         tool.name = match[1].str();
         std::string const remainder = match[2].str();
@@ -152,78 +66,110 @@ ToolCall parse_tool_call(std::string const& text)
     return tool;
 }
 
-std::string execute_tool(ToolCall const& tool)
+std::string ExecuteTool(ToolCall const& tool)
 {
-    if (tool.name == "read_file")
+    try
     {
-        return read_text_file(tool.path);
+        if (tool.name == "read_file")
+        {
+            return ReadTextFile(tool.path);
+        }
+        if (tool.name == "write_file")
+        {
+            WriteTextFile(tool.path, tool.content);
+            return "[write_file] ok";
+        }
     }
-    if (tool.name == "write_file")
+    catch(std::exception const e)
     {
-        return write_text_file(tool.path, tool.content);
+        std::cerr << '[' << tool.name << "] " << e.what() << '\n';
+        return e.what();
     }
     return "[tool] unknown tool";
 }
 
-std::string build_payload(std::string const& system_prompt, std::string const& user_prompt)
+std::string BuildPayload(std::string_view const system_prompt, std::string_view const user_prompt)
 {
-    std::ostringstream payload;
-    payload << "{\"model\":\"gemma-4\",\"messages\":["
-            << "{\"role\":\"system\",\"content\":\"" << escape_json_string(system_prompt) << "\"},"
-            << "{\"role\":\"user\",\"content\":\"" << escape_json_string(user_prompt) << "\"}]}";
-    return payload.str();
+    std::filesystem::path const payload_path = GetExecutableDirectory() / "data" / "PayloadTemplate.json";
+    std::string result = ReadTextFile(payload_path);
+
+    ReplaceIn(result, "@@system_prompt@@", EscapeJsonString(system_prompt));
+    ReplaceIn(result, "@@user_prompt@@"  , EscapeJsonString(user_prompt)  );
+
+    return result;
 }
 
-std::string extract_model_content(std::string const& response_body)
+std::string ExtractModelContent(std::string_view const response_body)
 {
     std::regex content_regex(R"REGEX("content"\s*:\s*"((?:[^"\\]|\\.)*)")REGEX");
-    std::smatch match;
-    if (std::regex_search(response_body, match, content_regex))
+    std::cmatch match;
+    if (std::regex_search(response_body.begin(), response_body.end(), match, content_regex))
     {
-        return unescape_json_string(match[1].str());
+        return UnescapeJsonString(match[1].str());
     }
 
     std::regex text_regex(R"REGEX("text"\s*:\s*"((?:[^"\\]|\\.)*)")REGEX");
-    if (std::regex_search(response_body, match, text_regex))
+    if (std::regex_search(response_body.begin(), response_body.end(), match, text_regex))
     {
-        return unescape_json_string(match[1].str());
+        return UnescapeJsonString(match[1].str());
     }
 
-    return response_body;
+    return { response_body.begin(), response_body.end() };
 }
 
-std::string http_post_json(std::string const& endpoint, std::string const& payload)
+struct Endpoint
 {
+    std::string host;
+    std::string port;
+    std::string path;
+};
+
+Endpoint ParseEndpoint(std::string_view const endpoint)
+{
+    Endpoint result{};
+
     std::string const scheme = "http://";
     if (endpoint.rfind(scheme, 0) != 0)
     {
         throw std::runtime_error("Only http:// endpoints are supported");
     }
 
-    std::string const target = endpoint.substr(scheme.size());
+    std::string_view const target = endpoint.substr(scheme.size());
     std::size_t const slash_pos = target.find('/');
-    std::string authority = target;
-    std::string path = "/";
+    std::string_view authority;
     if (slash_pos != std::string::npos)
     {
         authority = target.substr(0, slash_pos);
-        path = target.substr(slash_pos);
+        result.path = target.substr(slash_pos);
+    }
+    else
+    {
+        authority = target;
+        result.path = "/";
     }
 
     std::size_t const colon_pos = authority.find(':');
-    std::string host = authority;
-    std::string port = "80";
     if (colon_pos != std::string::npos)
     {
-        host = authority.substr(0, colon_pos);
-        port = authority.substr(colon_pos + 1);
+        result.host = authority.substr(0, colon_pos);
+        result.port = authority.substr(colon_pos + 1);
+    }
+    else
+    {
+        result.host = authority;
+        result.port = "80";
     }
 
+    return result;
+}
+
+int ConnectSocket(Endpoint const& endpoint)
+{
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     addrinfo* info = nullptr;
-    int const gai = getaddrinfo(host.c_str(), port.c_str(), &hints, &info);
+    int const gai = getaddrinfo(endpoint.host.c_str(), endpoint.port.c_str(), &hints, &info);
     if (gai != 0)
     {
         throw std::runtime_error(std::string("getaddrinfo failed: ") + gai_strerror(gai));
@@ -232,7 +178,7 @@ std::string http_post_json(std::string const& endpoint, std::string const& paylo
     int sock = -1;
     for (addrinfo* current = info; current != nullptr; current = current->ai_next)
     {
-        printf("Trying to connect to %s:%s\n", host.c_str(), port.c_str());
+        printf("Trying to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
         sock = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
         if (sock < 0)
         {
@@ -242,7 +188,7 @@ std::string http_post_json(std::string const& endpoint, std::string const& paylo
         {
             break;
         }
-        printf("Failed to connect to %s:%s\n", host.c_str(), port.c_str());
+        printf("Failed to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
         close(sock);
         sock = -1;
     }
@@ -253,17 +199,24 @@ std::string http_post_json(std::string const& endpoint, std::string const& paylo
         throw std::runtime_error("unable to connect to the llama.cpp server");
     }
 
-    std::ostringstream request;
-    request << "POST " << path << " HTTP/1.1\r\n"
-            << "Host: " << host << ":" << port << "\r\n"
-            << "Content-Type: application/json\r\n"
-            << "Content-Length: " << payload.size() << "\r\n"
-            << "Connection: close\r\n"
-            << "\r\n"
-            << payload;
+    return sock;
+}
 
-    std::string const request_text = request.str();
-    if (send(sock, request_text.c_str(), request_text.size(), 0) < 0)
+std::string HttpPostJson(Endpoint const& endpoint, std::string const& payload)
+{
+    auto sock = ConnectSocket(endpoint);
+
+    std::string request = ReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
+    ReplaceNewlinesIn(request, "\r\n"); // HTTP 1.1 requires CRLF line endings.
+    ReplaceIn(request, "@@endpointPath@@", endpoint.path);
+    ReplaceIn(request, "@@endpointHost@@", endpoint.host);
+    ReplaceIn(request, "@@endpointPort@@", endpoint.port);
+    ReplaceIn(request, "@@payloadSize@@", std::to_string(payload.size()));
+    ReplaceIn(request, "@@payload@@", payload);
+
+    //printf("Sending HTTP request:\n%s\n", request.c_str());
+
+    if (send(sock, request.c_str(), request.size(), 0) < 0)
     {
         close(sock);
         throw std::runtime_error("failed to send HTTP request");
@@ -282,6 +235,8 @@ std::string http_post_json(std::string const& endpoint, std::string const& paylo
     }
     close(sock);
 
+    //printf("Response:\n%s\n", response.c_str());
+
     std::size_t const header_end = response.find("\r\n\r\n");
     if (header_end == std::string::npos)
     {
@@ -294,7 +249,7 @@ std::string http_post_json(std::string const& endpoint, std::string const& paylo
     {
         throw std::runtime_error("server returned: " + status_line);
     }
-    return extract_model_content(body);
+    return ExtractModelContent(body);
 }
 
 } // namespace
@@ -332,30 +287,28 @@ int main(int argc, char** argv)
         prompt = "Read the README.md file and summarise it in one paragraph.";
     }
 
-    std::string const system_prompt =
-        "(You are a tiny agent harness. When you need a file, emit one plain-line tool call as JSON like "
-        "{\"tool\":\"read_file\",\"path\":\"/tmp/file\"} or "
-        "{\"tool\":\"write_file\",\"path\":\"/tmp/file\",\"content\":\"...\"}."
-        "If no tool is needed, answer directly.)SYS";
+    Endpoint const endpointDescriptor = ParseEndpoint(endpoint);
+
+    std::string const system_prompt = ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
 
     std::string conversation_prompt = prompt;
     for (int turn = 0; turn < max_turns; ++turn)
     {
         try
         {
-            std::string const payload = build_payload(system_prompt, conversation_prompt);
-            printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
-            std::string const assistant_reply = http_post_json(endpoint, payload);
+            std::string const payload = BuildPayload(system_prompt, conversation_prompt);
+            //printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
+            std::string const assistant_reply = HttpPostJson(endpointDescriptor, payload);
             std::cout << "assistant> " << assistant_reply << std::endl;
 
-            ToolCall tool = parse_tool_call(assistant_reply);
+            ToolCall tool = ParseToolCall(assistant_reply);
             if (tool.name.empty())
             {
                 break;
             }
 
-            std::string const tool_result = execute_tool(tool);
-            std::cout << "tool> " << tool.name << " -> " << tool_result << std::endl;
+            std::string const tool_result = ExecuteTool(tool);
+            std::cout << "tool> " << tool.name << " -> " << EscapeJsonString(tool_result.substr(0, 20)) << (tool_result.size() > 20 ? "..." : "") << std::endl;
             conversation_prompt =
                 "Tool call: " + tool.name + " path=" + tool.path + "\nResult: " + tool_result + "\nContinue the task.";
         }

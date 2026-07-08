@@ -5,6 +5,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# download CPM.cmake
+file(
+    DOWNLOAD
+        https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.43.1/CPM.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake
+    EXPECTED_HASH SHA256=1c40fc102ce9625d7de7eb14f541cab30cc3138dca627f0b0ec40293ce6c2934
+)
+include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
+
+CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
+
 add_executable(agent_harness
     src/FileUtilities.cpp       src/FileUtilities.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
@@ -14,6 +25,8 @@ add_executable(agent_harness
 )
 
 target_compile_features(agent_harness PRIVATE cxx_std_20)
+
+target_link_libraries(agent_harness PRIVATE nlohmann_json::nlohmann_json)
 
 set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:agent_harness>/data)
 

@@ -3,84 +3,101 @@
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 
+#include <nlohmann/json.hpp>
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <ranges>
 #include <regex>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
+using json = nlohmann::json;
+
 namespace
 {
 
-struct ToolCall
+struct ToolParameter
 {
-    std::string name;
-    std::string path;
-    std::string content;
+    std::string_view name;
+    std::string_view description;
 };
 
-ToolCall ParseToolCall(std::string_view const text)
-{
-    ToolCall tool;
-    std::regex json_regex(
-        R"(\{\s*\"tool\"\s*:\s*\"([^\"]+)\"\s*,\s*\"path\"\s*:\s*\"([^\"]*)\"(?:,\s*\"content\"\s*:\s*\"([^\"]*)\")?\s*\})");
-    std::match_results<std::string_view::const_iterator> match;
-    if (std::regex_search(text.begin(), text.end(), match, json_regex))
-    {
-        tool.name = match[1].str();
-        tool.path = UnescapeJsonString(match[2].str());
-        if (match[3].matched)
-        {
-            tool.content = UnescapeJsonString(match[3].str());
-        }
-        return tool;
-    }
+using ToolCall = std::string(json const& toolJson);
 
-    std::regex simple_regex(R"(^\s*TOOL\s+([A-Za-z_]+)\s+(.+)$)");
-    if (std::regex_search(text.begin(), text.end(), match, simple_regex))
-    {
-        tool.name = match[1].str();
-        std::string const remainder = match[2].str();
-        std::size_t const split = remainder.find(' ');
-        if (split != std::string::npos)
-        {
-            tool.path = remainder.substr(0, split);
-            tool.content = remainder.substr(split + 1);
-        }
-        else
-        {
-            tool.path = remainder;
-        }
-        return tool;
-    }
-    return tool;
+struct ToolDefinition
+{
+    std::string_view               name;
+    std::string_view               description;
+    std::span<ToolParameter const> parameters;
+    ToolCall&                      callTool;
+};    
+
+constexpr ToolParameter ReadFileToolParameters[] =
+{
+    { "path"   , "The path to the file to read." },
+};    
+
+constexpr ToolParameter WriteFileToolParameters[] =
+{
+    { "path"   , "The path to the file to write."    },
+    { "content", "The content to write to the file." },
+};    
+
+std::string ReadFileTool(json const& toolJson)
+{
+    auto& path = toolJson["path"].get_ref<std::string const&>();
+    return ReadTextFile(path);
 }
 
-std::string ExecuteTool(ToolCall const& tool)
+std::string WriteFileTool(json const& toolJson)
 {
-    try
+    auto& path    = toolJson["path"   ].get_ref<std::string const&>();
+    auto& content = toolJson["content"].get_ref<std::string const&>();
+
+    WriteTextFile(path, content);
+    return "[write_file] ok";
+}
+
+constexpr ToolDefinition const Tools[] =
+{
+    { "read_file" , "Read the contents of a file.", ReadFileToolParameters , ReadFileTool  },
+    { "write_file", "Write content to a file."    , WriteFileToolParameters, WriteFileTool },
+};
+
+std::optional<std::string> ParseToolCall(std::string_view const text)
+{
+    json const toolCall = json::parse(text.begin(), text.end(), nullptr, false);
+    if (!toolCall.is_object())
     {
-        if (tool.name == "read_file")
+        return {};
+    }
+
+    auto& tool = toolCall["tool"].get_ref<std::string const&>();
+
+    for (auto&& toolDef : Tools)
+    {
+        if (tool == toolDef.name)
         {
-            return ReadTextFile(tool.path);
-        }
-        if (tool.name == "write_file")
-        {
-            WriteTextFile(tool.path, tool.content);
-            return "[write_file] ok";
+            try
+            {
+                return toolDef.callTool(toolCall);
+            }
+            catch (std::exception const e)
+            {
+                std::cerr << '[' << toolDef.name << "] " << e.what() << '\n';
+                throw std::runtime_error{ e.what() };
+            }
         }
     }
-    catch(std::exception const e)
-    {
-        std::cerr << '[' << tool.name << "] " << e.what() << '\n';
-        return e.what();
-    }
+
     return "[tool] unknown tool";
 }
 
@@ -197,18 +214,40 @@ int main(int argc, char** argv)
             std::string const payload = BuildPayload(system_prompt, conversation_prompt);
             //printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
             std::string const assistant_reply = HttpPostJson(endpointDescriptor, payload);
-            std::cout << "assistant> " << assistant_reply << std::endl;
-
-            ToolCall tool = ParseToolCall(assistant_reply);
-            if (tool.name.empty())
+            
+            auto const toolResponse = ParseToolCall(assistant_reply);
+            if (!toolResponse)
             {
+                std::cout << "assistant> " << assistant_reply << std::endl;
                 break;
             }
 
-            std::string const tool_result = ExecuteTool(tool);
-            std::cout << "tool> " << tool.name << " -> " << EscapeJsonString(tool_result.substr(0, 20)) << (tool_result.size() > 20 ? "..." : "") << std::endl;
-            conversation_prompt =
-                "Tool call: " + tool.name + " path=" + tool.path + "\nResult: " + tool_result + "\nContinue the task.";
+            auto const& tool_result = toolResponse.value();
+
+            std::cout << "tool> ";
+            if (assistant_reply.size() > 20)
+            {
+                std::cout << EscapeJsonString(assistant_reply.substr(0, 20)) << "...";
+            }
+            else
+            {
+                std::cout << EscapeJsonString(assistant_reply);
+            }
+            std::cout << " -> ";
+            if (tool_result.size() > 20)
+            {
+                std::cout << EscapeJsonString(tool_result.substr(0, 20)) << "...";
+            }
+            else
+            {
+                std::cout << EscapeJsonString(tool_result);
+            }
+
+            conversation_prompt += "Tool call: \"";
+            conversation_prompt += EscapeJsonString(assistant_reply);
+            conversation_prompt += "\"\nResult: \"";
+            conversation_prompt += EscapeJsonString(tool_result);
+            conversation_prompt += "\"\nContinue the task.";
         }
         catch (std::exception const& error)
         {

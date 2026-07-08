@@ -59,7 +59,7 @@ Socket Socket::Connect(Endpoint const& endpoint)
 
 #if _WIN32
     using addrinfo = ADDRINFOA;
-#endif
+    #define gai_strerror gai_strerrorA
 
     static WSADATA wsaData =
         []()
@@ -72,6 +72,7 @@ Socket Socket::Connect(Endpoint const& endpoint)
             return wsaData;
         }
         ();
+#endif
 
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -80,7 +81,7 @@ Socket Socket::Connect(Endpoint const& endpoint)
     int const gai = getaddrinfo(endpoint.host.c_str(), endpoint.port.c_str(), &hints, &info);
     if (gai != 0)
     {
-        throw std::runtime_error(std::string("getaddrinfo failed: ") + gai_strerrorA(gai));
+        throw std::runtime_error(std::string("getaddrinfo failed: ") + gai_strerror(gai));
     }
 
     for (auto* current = info; current != nullptr; current = current->ai_next)
@@ -120,7 +121,7 @@ void Socket::Close() noexcept
 #if _WIN32
         closesocket(std::exchange(m_sock, INVALID_SOCKET));
 #else
-        close(std::exchange(m_sock, -1));
+        close(std::exchange(m_sock, INVALID_SOCKET));
 #endif
     }
 }

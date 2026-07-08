@@ -3,6 +3,9 @@
 #if _WIN32
 typedef unsigned __int64 SOCKET;
 #define INVALID_SOCKET  (SOCKET)(~0)
+#else
+typedef int SOCKET;
+#define INVALID_SOCKET  -1
 #endif
 
 #include <string>
@@ -43,9 +46,5 @@ public:
 #endif
 
 private:
-#if _WIN32
     SOCKET m_sock = INVALID_SOCKET;
-#else
-    int m_sock = -1;
-#endif
 };

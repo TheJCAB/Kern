@@ -2,18 +2,15 @@
 #include "FileUtilities.h"
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
+#include "ToolUtilities.h"
 
 #include <nlohmann/json.hpp>
 
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <optional>
-#include <ranges>
-#include <regex>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -23,22 +20,6 @@ using json = nlohmann::json;
 
 namespace
 {
-
-struct ToolParameter
-{
-    std::string_view name;
-    std::string_view description;
-};
-
-using ToolCall = std::string(json const& toolJson);
-
-struct ToolDefinition
-{
-    std::string_view               name;
-    std::string_view               description;
-    std::span<ToolParameter const> parameters;
-    ToolCall&                      callTool;
-};    
 
 constexpr ToolParameter ReadFileToolParameters[] =
 {
@@ -66,108 +47,78 @@ std::string WriteFileTool(json const& toolJson)
     return "[write_file] ok";
 }
 
-constexpr ToolDefinition const Tools[] =
+constexpr ToolDefinition AllTools[] =
 {
     { "read_file" , "Read the contents of a file.", ReadFileToolParameters , ReadFileTool  },
     { "write_file", "Write content to a file."    , WriteFileToolParameters, WriteFileTool },
 };
 
-std::optional<std::string> ParseToolCall(std::string_view const text)
+json BuildPayload(std::string_view const system_prompt, std::string_view const user_prompt)
 {
-    json const toolCall = json::parse(text.begin(), text.end(), nullptr, false);
-    if (!toolCall.is_object())
-    {
-        return {};
-    }
-
-    auto& tool = toolCall["tool"].get_ref<std::string const&>();
-
-    for (auto&& toolDef : Tools)
-    {
-        if (tool == toolDef.name)
-        {
-            try
-            {
-                return toolDef.callTool(toolCall);
-            }
-            catch (std::exception const e)
-            {
-                std::cerr << '[' << toolDef.name << "] " << e.what() << '\n';
-                throw std::runtime_error{ e.what() };
-            }
-        }
-    }
-
-    return "[tool] unknown tool";
+    return json{
+        { "model", "gemma-4" },
+        { "messages", json::array({
+            { { "role", "system" }, { "content", system_prompt } },
+            { { "role", "user"   }, { "content", user_prompt   } },
+        })},
+    };
 }
 
-std::string BuildPayload(std::string_view const system_prompt, std::string_view const user_prompt)
+enum class ResponseFinishReason
 {
-    std::filesystem::path const payload_path = GetExecutableDirectory() / "data" / "PayloadTemplate.json";
-    std::string result = ReadTextFile(payload_path);
+    stop          ,
+    length        ,
+    tool_calls    ,
+    content_filter,
+};
 
-    ReplaceIn(result, "@@system_prompt@@", EscapeJsonString(system_prompt));
-    ReplaceIn(result, "@@user_prompt@@"  , EscapeJsonString(user_prompt)  );
+struct ModelResponse
+{
+    ResponseFinishReason reason;
+    std::string          reasoning;
+    std::string          content;
+};
+
+ModelResponse ExtractModelContent(std::string_view const response_body)
+{
+    ModelResponse result;
+
+    json const response = json::parse(response_body.begin(), response_body.end(), nullptr, false);
+    if (!response.is_object()) throw std::runtime_error("malformed response: not a JSON object");
+
+    json const& choices = response["choices"];
+    if (!choices.is_array() || choices.empty()) throw std::runtime_error("malformed response: missing choices");
+
+    auto& finishReason = choices[0]["finish_reason"].get_ref<std::string const&>();
+    if      (finishReason == "stop"          ) result.reason = ResponseFinishReason::stop;
+    else if (finishReason == "length"        ) result.reason = ResponseFinishReason::length;
+    else if (finishReason == "tool_calls"    ) result.reason = ResponseFinishReason::tool_calls;
+    else if (finishReason == "content_filter") result.reason = ResponseFinishReason::content_filter;
+    else
+    {
+        throw std::runtime_error(std::string("malformed response: unknown finish_reason: ") + finishReason);
+    }
+
+    json const& message = choices[0]["message"];
+    if (!message.is_object() || message.empty()) throw std::runtime_error("malformed response: missing message");
+
+    result.content = message["content"].get<std::string>();
+
+    json const& reasoning = message["reasoning_content"];
+    if (reasoning.is_string())
+    {
+        result.reasoning = reasoning.get<std::string>();
+    }
 
     return result;
 }
 
-std::string ExtractModelContent(std::string_view const response_body)
+std::string HttpPost(Endpoint const& endpoint, json const& payload)
 {
-    std::regex content_regex(R"REGEX("content"\s*:\s*"((?:[^"\\]|\\.)*)")REGEX");
-    std::match_results<std::string_view::const_iterator> match;
-    if (std::regex_search(response_body.begin(), response_body.end(), match, content_regex))
-    {
-        return UnescapeJsonString(match[1].str());
-    }
-
-    std::regex text_regex(R"REGEX("text"\s*:\s*"((?:[^"\\]|\\.)*)")REGEX");
-    if (std::regex_search(response_body.begin(), response_body.end(), match, text_regex))
-    {
-        return UnescapeJsonString(match[1].str());
-    }
-
-    return { response_body.begin(), response_body.end() };
+    return HttpPost(endpoint, "application/json", payload.dump());
 }
 
-std::string HttpPostJson(Endpoint const& endpoint, std::string const& payload)
-{
-    auto sock = Socket::Connect(endpoint);
-
-    std::string request = ReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
-    ReplaceNewlinesIn(request, "\r\n"); // HTTP 1.1 requires CRLF line endings.
-    ReplaceIn(request, "@@endpointPath@@", endpoint.path);
-    ReplaceIn(request, "@@endpointHost@@", endpoint.host);
-    ReplaceIn(request, "@@endpointPort@@", endpoint.port);
-    ReplaceIn(request, "@@payloadSize@@", std::to_string(payload.size()));
-    ReplaceIn(request, "@@payload@@", payload);
-
-    //printf("Sending HTTP request:\n%s\n", request.c_str());
-
-    sock.Send(request, "HTTP request");
-
-    std::string response = sock.Receive("HTTP response");
-    
-    sock.Close();
-
-    //printf("Response:\n%s\n", response.c_str());
-
-    std::size_t const header_end = response.find("\r\n\r\n");
-    if (header_end == std::string::npos)
-    {
-        throw std::runtime_error("malformed HTTP response");
-    }
-
-    std::string const body = response.substr(header_end + 4);
-    std::string const status_line = response.substr(0, response.find('\r'));
-    if (status_line.find("200") == std::string::npos)
-    {
-        throw std::runtime_error("server returned: " + status_line);
-    }
-    return ExtractModelContent(body);
 }
-
-} // namespace
 
 int main(int argc, char** argv)
 {
@@ -211,11 +162,18 @@ int main(int argc, char** argv)
     {
         try
         {
-            std::string const payload = BuildPayload(system_prompt, conversation_prompt);
+            json const payload = BuildPayload(system_prompt, conversation_prompt);
             //printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
-            std::string const assistant_reply = HttpPostJson(endpointDescriptor, payload);
+            auto const modelResponse = ExtractModelContent(HttpPost(endpointDescriptor, payload));
+
+            if (!modelResponse.reasoning.empty())
+            {
+                std::cout << "reasoning> " << modelResponse.reasoning << std::endl;
+            }
+
+            std::string const assistant_reply = modelResponse.content;
             
-            auto const toolResponse = ParseToolCall(assistant_reply);
+            auto const toolResponse = ParseToolCall(assistant_reply, AllTools);
             if (!toolResponse)
             {
                 std::cout << "assistant> " << assistant_reply << std::endl;

@@ -20,6 +20,7 @@ add_executable(agent_harness
     src/FileUtilities.cpp       src/FileUtilities.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/StringUtilities.cpp     src/StringUtilities.h
+    src/ToolUtilities.cpp       src/ToolUtilities.h
 
     src/main.cpp
 )

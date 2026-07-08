@@ -48,3 +48,5 @@ public:
 private:
     SOCKET m_sock = INVALID_SOCKET;
 };
+
+std::string HttpPost(Endpoint const& endpoint, std::string_view payloadType, std::string_view payload);

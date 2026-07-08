@@ -1,6 +1,9 @@
 
 #include "NetworkUtilities.h"
 
+#include "FileUtilities.h"
+#include "StringUtilities.h"
+
 #if _WIN32
 #include <Ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
@@ -170,3 +173,40 @@ std::string Socket::Receive(std::string_view const /*description*/)
     return response;
 }
 
+std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadType, std::string_view const payload)
+{
+    auto sock = Socket::Connect(endpoint);
+
+    std::string request = ReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
+    ReplaceNewlinesIn(request, "\r\n"); // HTTP 1.1 requires CRLF line endings.
+    ReplaceIn(request, "@@endpointPath@@", endpoint.path);
+    ReplaceIn(request, "@@endpointHost@@", endpoint.host);
+    ReplaceIn(request, "@@endpointPort@@", endpoint.port);
+    ReplaceIn(request, "@@contentType@@", payloadType);
+    ReplaceIn(request, "@@payloadSize@@", std::to_string(payload.size()));
+    ReplaceIn(request, "@@payload@@", payload);
+
+    //printf("Sending HTTP request:\n%s\n", request.c_str());
+
+    sock.Send(request, "HTTP request");
+
+    std::string response = sock.Receive("HTTP response");
+    
+    sock.Close();
+
+    printf("Response:\n%s\n", response.c_str());
+
+    std::size_t const header_end = response.find("\r\n\r\n");
+    if (header_end == std::string::npos)
+    {
+        throw std::runtime_error("malformed HTTP response");
+    }
+
+    std::string const body = response.substr(header_end + 4);
+    std::string const status_line = response.substr(0, response.find('\r'));
+    if (status_line.find("200") == std::string::npos)
+    {
+        throw std::runtime_error("server returned: " + status_line);
+    }
+    return body;
+}

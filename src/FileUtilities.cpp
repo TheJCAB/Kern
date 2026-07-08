@@ -1,8 +1,14 @@
 
 #include "FileUtilities.h"
 
+#if _WIN32
+#include <Windows.h>
+#endif
+
 #include <exception>
 #include <fstream>
+#include <sstream>
+#include <iostream>
 #include <stdexcept>
 
 std::string ReadTextFile(std::filesystem::path const& path)
@@ -30,15 +36,31 @@ void WriteTextFile(std::filesystem::path const& path, std::string_view const con
 
 std::filesystem::path GetExecutableDirectory()
 {
-    try
-    {
-        std::filesystem::path const exe_path = std::filesystem::read_symlink("/proc/self/exe");
-        if (!exe_path.empty())
+    static std::filesystem::path const exe_dir =
+        []() -> std::filesystem::path
         {
-            return exe_path.parent_path();
-        }
-    }
-    catch (...) {}
+#if _WIN32
+            char buffer[MAX_PATH];
+            DWORD const size = GetModuleFileNameA(nullptr, buffer, sizeof(buffer));
+            if (size > 0 && size < sizeof(buffer))
+            {
+                return std::filesystem::path{ buffer, buffer + size }.parent_path();
+            }
+#else
+            try
+            {
+                std::filesystem::path const exe_path = std::filesystem::read_symlink("/proc/self/exe");
+                if (!exe_path.empty())
+                {
+                    return exe_path.parent_path();
+                }
+            }
+            catch (...) {}
+#endif
 
-    return std::filesystem::current_path();
+            std::cerr << "error: could not get executable path. Using current path instead." << std::endl;
+            return std::filesystem::current_path();
+        }
+        ();
+    return exe_dir;
 }

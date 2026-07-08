@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(agent_harness
     src/FileUtilities.cpp       src/FileUtilities.h
+    src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/StringUtilities.cpp     src/StringUtilities.h
 
     src/main.cpp

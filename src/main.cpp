@@ -1,11 +1,7 @@
 
 #include "FileUtilities.h"
+#include "NetworkUtilities.h"
 #include "StringUtilities.h"
-
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -34,7 +30,7 @@ ToolCall ParseToolCall(std::string_view const text)
     ToolCall tool;
     std::regex json_regex(
         R"(\{\s*\"tool\"\s*:\s*\"([^\"]+)\"\s*,\s*\"path\"\s*:\s*\"([^\"]*)\"(?:,\s*\"content\"\s*:\s*\"([^\"]*)\")?\s*\})");
-    std::cmatch match;
+    std::match_results<std::string_view::const_iterator> match;
     if (std::regex_search(text.begin(), text.end(), match, json_regex))
     {
         tool.name = match[1].str();
@@ -102,7 +98,7 @@ std::string BuildPayload(std::string_view const system_prompt, std::string_view 
 std::string ExtractModelContent(std::string_view const response_body)
 {
     std::regex content_regex(R"REGEX("content"\s*:\s*"((?:[^"\\]|\\.)*)")REGEX");
-    std::cmatch match;
+    std::match_results<std::string_view::const_iterator> match;
     if (std::regex_search(response_body.begin(), response_body.end(), match, content_regex))
     {
         return UnescapeJsonString(match[1].str());
@@ -117,94 +113,9 @@ std::string ExtractModelContent(std::string_view const response_body)
     return { response_body.begin(), response_body.end() };
 }
 
-struct Endpoint
-{
-    std::string host;
-    std::string port;
-    std::string path;
-};
-
-Endpoint ParseEndpoint(std::string_view const endpoint)
-{
-    Endpoint result{};
-
-    std::string const scheme = "http://";
-    if (endpoint.rfind(scheme, 0) != 0)
-    {
-        throw std::runtime_error("Only http:// endpoints are supported");
-    }
-
-    std::string_view const target = endpoint.substr(scheme.size());
-    std::size_t const slash_pos = target.find('/');
-    std::string_view authority;
-    if (slash_pos != std::string::npos)
-    {
-        authority = target.substr(0, slash_pos);
-        result.path = target.substr(slash_pos);
-    }
-    else
-    {
-        authority = target;
-        result.path = "/";
-    }
-
-    std::size_t const colon_pos = authority.find(':');
-    if (colon_pos != std::string::npos)
-    {
-        result.host = authority.substr(0, colon_pos);
-        result.port = authority.substr(colon_pos + 1);
-    }
-    else
-    {
-        result.host = authority;
-        result.port = "80";
-    }
-
-    return result;
-}
-
-int ConnectSocket(Endpoint const& endpoint)
-{
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* info = nullptr;
-    int const gai = getaddrinfo(endpoint.host.c_str(), endpoint.port.c_str(), &hints, &info);
-    if (gai != 0)
-    {
-        throw std::runtime_error(std::string("getaddrinfo failed: ") + gai_strerror(gai));
-    }
-
-    int sock = -1;
-    for (addrinfo* current = info; current != nullptr; current = current->ai_next)
-    {
-        printf("Trying to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
-        sock = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
-        if (sock < 0)
-        {
-            continue;
-        }
-        if (connect(sock, current->ai_addr, current->ai_addrlen) == 0)
-        {
-            break;
-        }
-        printf("Failed to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
-        close(sock);
-        sock = -1;
-    }
-    freeaddrinfo(info);
-
-    if (sock < 0)
-    {
-        throw std::runtime_error("unable to connect to the llama.cpp server");
-    }
-
-    return sock;
-}
-
 std::string HttpPostJson(Endpoint const& endpoint, std::string const& payload)
 {
-    auto sock = ConnectSocket(endpoint);
+    auto sock = Socket::Connect(endpoint);
 
     std::string request = ReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
     ReplaceNewlinesIn(request, "\r\n"); // HTTP 1.1 requires CRLF line endings.
@@ -216,24 +127,11 @@ std::string HttpPostJson(Endpoint const& endpoint, std::string const& payload)
 
     //printf("Sending HTTP request:\n%s\n", request.c_str());
 
-    if (send(sock, request.c_str(), request.size(), 0) < 0)
-    {
-        close(sock);
-        throw std::runtime_error("failed to send HTTP request");
-    }
+    sock.Send(request, "HTTP request");
 
-    std::string response;
-    char buffer[4096];
-    for (;;)
-    {
-        ssize_t const received = recv(sock, buffer, sizeof(buffer), 0);
-        if (received <= 0)
-        {
-            break;
-        }
-        response.append(buffer, static_cast<std::size_t>(received));
-    }
-    close(sock);
+    std::string response = sock.Receive("HTTP response");
+    
+    sock.Close();
 
     //printf("Response:\n%s\n", response.c_str());
 

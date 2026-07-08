@@ -7,6 +7,17 @@
   },
   "configurePresets": [
     {
+      "name": "msvc-ninja",
+      "displayName": "MSVC + Ninja",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
       "name": "clang-ninja",
       "displayName": "Clang + Ninja",
       "generator": "Ninja",
@@ -16,12 +27,6 @@
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_BUILD_TYPE": "Release"
       }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "clang-ninja",
-      "configurePreset": "clang-ninja"
     }
   ]
 }

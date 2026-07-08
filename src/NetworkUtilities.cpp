@@ -194,7 +194,7 @@ std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadTyp
     
     sock.Close();
 
-    printf("Response:\n%s\n", response.c_str());
+    //printf("Response:\n%s\n", response.c_str());
 
     std::size_t const header_end = response.find("\r\n\r\n");
     if (header_end == std::string::npos)

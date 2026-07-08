@@ -40,7 +40,7 @@
     },
     {
       "name": "Clang-Release",
-      "displayName": "Clang + Ninja",
+      "displayName": "Clang-Release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/Release",
       "cacheVariables": {
@@ -56,7 +56,7 @@
     },
     {
       "name": "Clang-Debug",
-      "displayName": "Clang + Ninja",
+      "displayName": "Clang-Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/Debug",
       "cacheVariables": {

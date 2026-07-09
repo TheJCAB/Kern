@@ -53,14 +53,34 @@ constexpr ToolDefinition AllTools[] =
     { "write_file", "Write content to a file."    , WriteFileToolParameters, WriteFileTool },
 };
 
-json BuildPayload(std::string_view const system_prompt, std::string_view const user_prompt)
+struct SessionRound
 {
+    std::string assistant;
+    std::string user;
+};
+
+json BuildPayload(std::string_view const systemPrompt, std::string_view const initialUserPrompt, std::span<SessionRound> const conversationHistory = {})
+{
+    auto messages = json::array({
+        { { "role", "system" }, { "content", systemPrompt } },
+        { { "role", "user"   }, { "content", initialUserPrompt   } },
+    });
+
+    for (auto& round : conversationHistory)
+    {
+        messages.push_back({ { "role", "assistant" }, { "content", round.assistant } });
+        messages.push_back({ { "role", "user"      }, { "content", round.user      } });
+    }
+
     return json{
         { "model", "gemma-4" },
-        { "messages", json::array({
-            { { "role", "system" }, { "content", system_prompt } },
-            { { "role", "user"   }, { "content", user_prompt   } },
-        })},
+        { "messages", std::move(messages) },
+        //{ "max_tokens", 1024 },
+        //{ "temperature", 0.7 },
+        //{ "top_p", 1.0 },
+        //{ "n", 1 },
+        //{ "stream", false },
+        //{ "stop", json::array({ "\n\n" }),
     };
 }
 
@@ -155,57 +175,55 @@ int main(int argc, char** argv)
 
     Endpoint const endpointDescriptor = ParseEndpoint(endpoint);
 
-    std::string const system_prompt = ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
+    std::string const systemPrompt = ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
+    std::string initialUserPrompt = prompt;
 
-    std::string conversation_prompt = prompt;
+    std::vector<SessionRound> conversationHistory;
+
     for (int turn = 0; turn < max_turns; ++turn)
     {
         try
         {
-            json const payload = BuildPayload(system_prompt, conversation_prompt);
+            json const payload = BuildPayload(systemPrompt, initialUserPrompt, conversationHistory);
             //printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
             auto const modelResponse = ExtractModelContent(HttpPost(endpointDescriptor, payload));
 
             if (!modelResponse.reasoning.empty())
             {
-                std::cout << "reasoning> " << modelResponse.reasoning << std::endl;
+                std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
             }
 
-            std::string const assistant_reply = modelResponse.content;
+            std::string const assistantReply = modelResponse.content;
             
-            auto const toolResponse = ParseToolCall(assistant_reply, AllTools);
+            auto const toolResponse = ParseToolCall(assistantReply, AllTools);
             if (!toolResponse)
             {
-                std::cout << "assistant> " << assistant_reply << std::endl;
+                std::cout << "assistant> " << assistantReply << std::endl << std::endl;
                 break;
             }
 
-            auto const& tool_result = toolResponse.value();
+            auto const& toolResult = toolResponse.value();
 
             std::cout << "tool> ";
-            if (assistant_reply.size() > 20)
+            if (assistantReply.size() > 20)
             {
-                std::cout << EscapeJsonString(assistant_reply.substr(0, 20)) << "...";
+                std::cout << EscapeJsonString(assistantReply.substr(0, 20)) << "...";
             }
             else
             {
-                std::cout << EscapeJsonString(assistant_reply);
+                std::cout << EscapeJsonString(assistantReply);
             }
             std::cout << " -> ";
-            if (tool_result.size() > 20)
+            if (toolResult.size() > 20)
             {
-                std::cout << EscapeJsonString(tool_result.substr(0, 20)) << "...";
+                std::cout << EscapeJsonString(toolResult.substr(0, 20)) << "...";
             }
             else
             {
-                std::cout << EscapeJsonString(tool_result);
+                std::cout << EscapeJsonString(toolResult);
             }
 
-            conversation_prompt += "Tool call: \"";
-            conversation_prompt += EscapeJsonString(assistant_reply);
-            conversation_prompt += "\"\nResult: \"";
-            conversation_prompt += EscapeJsonString(tool_result);
-            conversation_prompt += "\"\nContinue the task.";
+            conversationHistory.push_back({ assistantReply, toolResult });
         }
         catch (std::exception const& error)
         {

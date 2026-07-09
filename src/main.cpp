@@ -32,16 +32,16 @@ constexpr ToolParameter WriteFileToolParameters[] =
     { "content", "The content to write to the file." },
 };    
 
-std::string ReadFileTool(json const& toolJson)
+std::string ReadFileTool(json const& arguments)
 {
-    auto& path = toolJson["path"].get_ref<std::string const&>();
+    auto& path = arguments.at("path").get_ref<std::string const&>();
     return ReadTextFile(path);
 }
 
-std::string WriteFileTool(json const& toolJson)
+std::string WriteFileTool(json const& arguments)
 {
-    auto& path    = toolJson["path"   ].get_ref<std::string const&>();
-    auto& content = toolJson["content"].get_ref<std::string const&>();
+    auto& path    = arguments.at("path"   ).get_ref<std::string const&>();
+    auto& content = arguments.at("content").get_ref<std::string const&>();
 
     WriteTextFile(path, content);
     return "[write_file] ok";
@@ -61,6 +61,42 @@ struct SessionRound
 
 json BuildPayload(std::string_view const systemPrompt, std::string_view const initialUserPrompt, std::span<SessionRound> const conversationHistory = {})
 {
+    auto tools = json::array();
+    for (auto&& toolDef : AllTools)
+    {
+        json toolJson = {
+            { "name"       , toolDef.name        },
+            { "description", toolDef.description },
+        };
+
+        if (!toolDef.parameters.empty())
+        {
+            json parametersJson = {
+                { "type"      , "object" },
+                { "properties", json::object() },
+                { "required"  , json::array()  },
+            };
+
+            for (auto&& param : toolDef.parameters)
+            {
+                parametersJson["properties"][param.name] = {
+                    { "type"       , "string"      },
+                    { "description", param.description },
+                };
+                parametersJson["required"].push_back(param.name);
+            }
+
+            toolJson["parameters"] = std::move(parametersJson);
+        }
+
+        tools.push_back(
+            json::object({
+                { "type"    , "function" },
+                { "function", std::move(toolJson) },
+            })
+        );
+    }
+
     auto messages = json::array({
         { { "role", "system" }, { "content", systemPrompt } },
         { { "role", "user"   }, { "content", initialUserPrompt   } },
@@ -75,6 +111,7 @@ json BuildPayload(std::string_view const systemPrompt, std::string_view const in
     return json{
         { "model", "gemma-4" },
         { "messages", std::move(messages) },
+        { "tools", std::move(tools) },
         //{ "max_tokens", 1024 },
         //{ "temperature", 0.7 },
         //{ "top_p", 1.0 },
@@ -92,11 +129,30 @@ enum class ResponseFinishReason
     content_filter,
 };
 
+std::string to_string(ResponseFinishReason const reason)
+{
+    switch (reason)
+    {
+    case ResponseFinishReason::stop          : return "stop";
+    case ResponseFinishReason::length        : return "length";
+    case ResponseFinishReason::tool_calls    : return "tool_calls";
+    case ResponseFinishReason::content_filter: return "content_filter";
+    default                                  : return "<unknown ResponseFinishReason>";
+    }
+}
+
+struct ToolCall
+{
+    std::string name;
+    json        arguments;
+};
+
 struct ModelResponse
 {
-    ResponseFinishReason reason;
-    std::string          reasoning;
-    std::string          content;
+    ResponseFinishReason  reason;
+    std::string           reasoning;
+    std::string           content;
+    std::vector<ToolCall> toolCalls;
 };
 
 ModelResponse ExtractModelContent(std::string_view const response_body)
@@ -106,10 +162,12 @@ ModelResponse ExtractModelContent(std::string_view const response_body)
     json const response = json::parse(response_body.begin(), response_body.end(), nullptr, false);
     if (!response.is_object()) throw std::runtime_error("malformed response: not a JSON object");
 
-    json const& choices = response["choices"];
+    json const& choices = response.at("choices");
     if (!choices.is_array() || choices.empty()) throw std::runtime_error("malformed response: missing choices");
 
-    auto& finishReason = choices[0]["finish_reason"].get_ref<std::string const&>();
+    auto& choice = choices[0];
+
+    auto& finishReason = choice.at("finish_reason").get_ref<std::string const&>();
     if      (finishReason == "stop"          ) result.reason = ResponseFinishReason::stop;
     else if (finishReason == "length"        ) result.reason = ResponseFinishReason::length;
     else if (finishReason == "tool_calls"    ) result.reason = ResponseFinishReason::tool_calls;
@@ -119,15 +177,32 @@ ModelResponse ExtractModelContent(std::string_view const response_body)
         throw std::runtime_error(std::string("malformed response: unknown finish_reason: ") + finishReason);
     }
 
-    json const& message = choices[0]["message"];
+    if (result.reason != ResponseFinishReason::stop)
+    {
+        std::cout << "Respponse: " << response_body << std::endl;
+    }
+
+    json const& message = choice.at("message");
     if (!message.is_object() || message.empty()) throw std::runtime_error("malformed response: missing message");
 
-    result.content = message["content"].get<std::string>();
+    result.content   = message.value<std::string>("content"          , {});
+    result.reasoning = message.value<std::string>("reasoning_content", {});
 
-    json const& reasoning = message["reasoning_content"];
-    if (reasoning.is_string())
+    for (auto& toolCall : message.value<json::array_t>("tool_calls", {}))
     {
-        result.reasoning = reasoning.get<std::string>();
+        if (toolCall.value<std::string>("type", {}) != "function")
+        {
+            continue;
+        }
+        auto& function         = toolCall.at("function");
+        auto functionName      = function.value<std::string>("name", {});
+        if (!functionName.empty())
+        {
+            result.toolCalls.push_back({
+                .name      = std::move(functionName),
+                .arguments = json::parse(function.value<std::string>("arguments", {}), nullptr, 0),
+            });
+        }
     }
 
     return result;
@@ -186,44 +261,67 @@ int main(int argc, char** argv)
         {
             json const payload = BuildPayload(systemPrompt, initialUserPrompt, conversationHistory);
             //printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
-            auto const modelResponse = ExtractModelContent(HttpPost(endpointDescriptor, payload));
+            auto modelResponse = ExtractModelContent(HttpPost(endpointDescriptor, payload));
 
+            // Show the reasoning stream from the model.
             if (!modelResponse.reasoning.empty())
             {
                 std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
             }
 
-            std::string const assistantReply = modelResponse.content;
-            
-            auto const toolResponse = ParseToolCall(assistantReply, AllTools);
-            if (!toolResponse)
+            if (!modelResponse.content.empty())
             {
-                std::cout << "assistant> " << assistantReply << std::endl << std::endl;
+                // See if we got an old-school textual tool call.
+                auto toolResponse = ParseToolCall(modelResponse.content, AllTools);
+                if (toolResponse)
+                {
+                    auto& toolResult = toolResponse.value();
+
+                    std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+
+                    conversationHistory.push_back({
+                        .assistant = std::move(modelResponse.content),
+                        .user      = std::move(toolResult),
+                    });
+                    continue;
+                }
+                else
+                {
+                    std::cout << "assistant> " << modelResponse.content << std::endl << std::endl;
+                }
+            }
+
+            if (modelResponse.reason == ResponseFinishReason::stop)
+            {
                 break;
             }
-
-            auto const& toolResult = toolResponse.value();
-
-            std::cout << "tool> ";
-            if (assistantReply.size() > 20)
+            else if (modelResponse.reason == ResponseFinishReason::tool_calls)
             {
-                std::cout << EscapeJsonString(assistantReply.substr(0, 20)) << "...";
+                if (modelResponse.toolCalls.empty())
+                {
+                    std::cerr << "The model said it was calling tools, but we didn't find any tool to call" << std::endl;
+                    break;
+                }
+
+                if (modelResponse.toolCalls.size() > 1)
+                {
+                    std::cerr << "TODO: multiple tool calls. Aborting..." << std::endl;
+                    break;
+                }
+
+                auto& toolCall = modelResponse.toolCalls[0];
+                std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
+                std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+                conversationHistory.push_back({
+                    .assistant = std::move(modelResponse.content),
+                    .user      = std::move(toolResult),
+                });
             }
             else
             {
-                std::cout << EscapeJsonString(assistantReply);
+                std::cerr << "TODO: stop reason " << to_string(modelResponse.reason);
+                break;
             }
-            std::cout << " -> ";
-            if (toolResult.size() > 20)
-            {
-                std::cout << EscapeJsonString(toolResult.substr(0, 20)) << "...";
-            }
-            else
-            {
-                std::cout << EscapeJsonString(toolResult);
-            }
-
-            conversationHistory.push_back({ assistantReply, toolResult });
         }
         catch (std::exception const& error)
         {

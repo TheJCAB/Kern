@@ -1,8 +1,7 @@
 
 #include "StringUtilities.h"
 
-// Escape special characters to allow any arbitrary string to be expressed in JSON.
-std::string EscapeJsonString(std::string_view const& input)
+std::string EscapeString(std::string_view const& input)
 {
     std::string out;
     for (char const c : input)
@@ -32,8 +31,7 @@ std::string EscapeJsonString(std::string_view const& input)
     return out;
 }
 
-// Undo the JSON string escaping to recover the original string.
-std::string UnescapeJsonString(std::string_view const& input)
+std::string UnescapeString(std::string_view const& input)
 {
     std::string out;
     for (std::size_t i = 0; i < input.size(); ++i)
@@ -69,6 +67,18 @@ std::string UnescapeJsonString(std::string_view const& input)
         }
     }
     return out;
+}
+
+std::string OneLine(std::string_view const string, size_t const characterLimit)
+{
+    if (string.size() > characterLimit)
+    {
+        return EscapeString(string.substr(0, characterLimit)) + "...";
+    }
+    else
+    {
+        return EscapeString(string);
+    }
 }
 
 void ReplaceNewlinesIn(std::string& string, std::string_view const replacement)

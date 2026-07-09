@@ -1,3 +1,1 @@
-You are a tiny agent harness.
-When you need a file, emit one plain-line tool call as JSON like {"tool":"read_file","path":"/tmp/file"} or {"tool":"write_file","path":"/tmp/file","content":"..."}.
-If no tool is needed, answer directly.
+You are a tiny coding agent harness.

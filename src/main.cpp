@@ -133,7 +133,7 @@ ModelResponse ExtractModelContent(json const& response)
 
     if (result.reason != ResponseFinishReason::stop)
     {
-        std::cout << "Response: " << response.dump(2) << std::endl;
+        std::cout << "Response: " << Utf8ToSystemEncoding(response.dump(2)) << std::endl;
     }
 
     json const& message = choice.at("message");
@@ -259,7 +259,7 @@ public:
                 // Show the reasoning stream from the model.
                 if (!modelResponse.reasoning.empty())
                 {
-                    std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
+                    std::cout << "reasoning> " << Utf8ToSystemEncoding(modelResponse.reasoning) << std::endl << std::endl;
                 }
 
                 if (!modelResponse.content.empty())
@@ -270,7 +270,7 @@ public:
                     {
                         auto& toolResult = toolResponse.value();
 
-                        std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+                        std::cout << "tool> " << Utf8ToSystemEncoding(OneLine(modelResponse.content, 20)) << " -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
 
                         m_conversationHistory.push_back({
                             .role    = "user",
@@ -284,7 +284,7 @@ public:
                     }
                     else
                     {
-                        std::cout << "assistant> " << modelResponse.content << std::endl << std::endl;
+                        std::cout << "assistant> " << Utf8ToSystemEncoding(modelResponse.content) << std::endl << std::endl;
                     }
                 }
 
@@ -325,7 +325,7 @@ public:
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
-                        std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+                        std::cout << "tool> " << toolCall.name << '(' << Utf8ToSystemEncoding(OneLine(toolCall.arguments.dump(), 20)) << ") -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
                         m_conversationHistory.push_back({
                             .role        = "tool",
                             .content     = BuildToolResponseMessage(toolCall.name, toolResult),
@@ -335,13 +335,13 @@ public:
                 }
                 else
                 {
-                    std::cerr << "TODO: stop reason " << to_string(modelResponse.reason);
+                    std::cerr << "TODO: stop reason " << Utf8ToSystemEncoding(to_string(modelResponse.reason));
                     throw std::runtime_error(std::string("TODO: stop reason ") + to_string(modelResponse.reason));
                 }
             }
             catch (std::exception const& error)
             {
-                std::cerr << "agent error: " << error.what() << std::endl;
+                std::cerr << "agent error: " << Utf8ToSystemEncoding(error.what()) << std::endl;
                 throw;
             }
         }
@@ -355,6 +355,8 @@ private:
 
 int main(int argc, char** argv)
 {
+    //ConfigureConsoleForUtf8();
+
     std::string endpoint = "http://127.0.0.1:8080/v1/chat/completions";
     std::string prompt;
     int max_turns = 10;

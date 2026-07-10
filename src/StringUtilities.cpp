@@ -1,6 +1,108 @@
 
 #include "StringUtilities.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
+namespace
+{
+#if defined(_WIN32)
+std::string ConvertEncoding(std::string_view const input, unsigned int const fromCodePage, unsigned int const toCodePage)
+{
+    if (input.empty())
+    {
+        return {};
+    }
+
+    int const wideLength = MultiByteToWideChar(
+        fromCodePage,
+        MB_ERR_INVALID_CHARS,
+        input.data(),
+        static_cast<int>(input.size()),
+        nullptr,
+        0);
+    if (wideLength <= 0)
+    {
+        return std::string(input);
+    }
+
+    std::wstring wide(wideLength, L'\0');
+    MultiByteToWideChar(
+        fromCodePage,
+        MB_ERR_INVALID_CHARS,
+        input.data(),
+        static_cast<int>(input.size()),
+        wide.data(),
+        wideLength);
+
+    int const byteLength = WideCharToMultiByte(
+        toCodePage,
+        0,
+        wide.data(),
+        wideLength,
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (byteLength <= 0)
+    {
+        return std::string(input);
+    }
+
+    std::string output(byteLength, '\0');
+    WideCharToMultiByte(
+        toCodePage,
+        0,
+        wide.data(),
+        wideLength,
+        output.data(),
+        byteLength,
+        nullptr,
+        nullptr);
+    return output;
+}
+#endif
+}
+
+void ConfigureConsoleForUtf8()
+{
+#if defined(_WIN32)
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+}
+
+std::string Utf8ToSystemEncoding(std::string_view const input)
+{
+#if defined(_WIN32)
+    unsigned int const outputCodePage = GetConsoleOutputCP();
+    if (outputCodePage == CP_UTF8)
+    {
+        return std::string(input);
+    }
+
+    return ConvertEncoding(input, CP_UTF8, outputCodePage);
+#else
+    return std::string(input);
+#endif
+}
+
+std::string SystemEncodingToUtf8(std::string_view const input)
+{
+#if defined(_WIN32)
+    unsigned int const inputCodePage = GetACP();
+    if (inputCodePage == CP_UTF8)
+    {
+        return std::string(input);
+    }
+
+    return ConvertEncoding(input, inputCodePage, CP_UTF8);
+#else
+    return std::string(input);
+#endif
+}
+
 std::string EscapeString(std::string_view const& input)
 {
     std::string out;

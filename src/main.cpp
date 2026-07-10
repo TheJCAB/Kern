@@ -6,11 +6,16 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
+#include <random>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -53,13 +58,15 @@ constexpr ToolDefinition AllTools[] =
     { "write_file", "Write content to a file."    , WriteFileToolParameters, WriteFileTool },
 };
 
-struct SessionRound
+struct ConversationMessage
 {
-    std::string assistant;
-    std::string user;
+    std::string   role;
+    std::string   content;
+    std::string   toolCallId;
+    json::array_t toolCalls;
 };
 
-json BuildPayload(std::string_view const systemPrompt, std::string_view const initialUserPrompt, std::span<SessionRound> const conversationHistory = {})
+json BuildPayload(std::string_view const systemPrompt, std::string_view const initialUserPrompt, std::span<ConversationMessage> const conversationHistory = {})
 {
     auto tools = json::array();
     for (auto&& toolDef : AllTools)
@@ -102,10 +109,24 @@ json BuildPayload(std::string_view const systemPrompt, std::string_view const in
         { { "role", "user"   }, { "content", initialUserPrompt   } },
     });
 
-    for (auto& round : conversationHistory)
+    for (auto& message : conversationHistory)
     {
-        messages.push_back({ { "role", "assistant" }, { "content", round.assistant } });
-        messages.push_back({ { "role", "user"      }, { "content", round.user      } });
+        json messageJson = {
+            { "role"   , message.role    },
+            { "content", message.content },
+        };
+
+        if (!message.toolCallId.empty())
+        {
+            messageJson["tool_call_id"] = message.toolCallId;
+        }
+
+        if (!message.toolCalls.empty())
+        {
+            messageJson["tool_calls"] = message.toolCalls;
+        }
+
+        messages.push_back(std::move(messageJson));
     }
 
     return json{
@@ -143,6 +164,7 @@ std::string to_string(ResponseFinishReason const reason)
 
 struct ToolCall
 {
+    std::string id;
     std::string name;
     json        arguments;
 };
@@ -155,11 +177,10 @@ struct ModelResponse
     std::vector<ToolCall> toolCalls;
 };
 
-ModelResponse ExtractModelContent(std::string_view const response_body)
+ModelResponse ExtractModelContent(json const& response)
 {
     ModelResponse result;
 
-    json const response = json::parse(response_body.begin(), response_body.end(), nullptr, false);
     if (!response.is_object()) throw std::runtime_error("malformed response: not a JSON object");
 
     json const& choices = response.at("choices");
@@ -179,7 +200,7 @@ ModelResponse ExtractModelContent(std::string_view const response_body)
 
     if (result.reason != ResponseFinishReason::stop)
     {
-        std::cout << "Respponse: " << response_body << std::endl;
+        std::cout << "Response: " << response.dump(2) << std::endl;
     }
 
     json const& message = choice.at("message");
@@ -199,6 +220,7 @@ ModelResponse ExtractModelContent(std::string_view const response_body)
         if (!functionName.empty())
         {
             result.toolCalls.push_back({
+                .id        = toolCall.value<std::string>("id", {}),
                 .name      = std::move(functionName),
                 .arguments = json::parse(function.value<std::string>("arguments", {}), nullptr, 0),
             });
@@ -211,6 +233,67 @@ ModelResponse ExtractModelContent(std::string_view const response_body)
 std::string HttpPost(Endpoint const& endpoint, json const& payload)
 {
     return HttpPost(endpoint, "application/json", payload.dump());
+}
+
+std::string BuildToolResponseMessage(std::string_view const toolName, std::string_view const toolResult)
+{
+    json response = {
+        { "result", std::string(toolResult) },
+    };
+
+    if (!toolName.empty())
+    {
+        response["tool"] = std::string(toolName);
+    }
+
+    return response.dump();
+}
+
+std::string GenerateLogId()
+{
+    static constexpr char kAlphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+    std::random_device rd;
+    std::mt19937_64 rng(rd());
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(sizeof(kAlphabet) - 2));
+
+    std::string id;
+    id.reserve(8);
+    for (int i = 0; i < 8; ++i)
+    {
+        id.push_back(kAlphabet[dist(rng)]);
+    }
+
+    return id;
+}
+
+std::filesystem::path GetLogsDirectory()
+{
+    static auto const path = GetExecutableDirectory() / "logs";
+    if (!std::filesystem::exists(path))
+    {
+        std::filesystem::create_directory(path);
+    }
+    return path;
+}
+
+std::filesystem::path BuildLogPath(std::filesystem::path const& logsDirectory, std::string_view const logId, int sequence, std::string_view const prefix)
+{
+    std::ostringstream filename;
+    filename << logId << '_' << std::setw(3) << std::setfill('0') << sequence << '_' << prefix << ".json";
+    return logsDirectory / filename.str();
+}
+
+void WriteLogFile(std::filesystem::path const& logsDirectory, std::string_view const logId, int sequence, std::string_view const prefix, std::string_view const content)
+{
+    auto const logPath = BuildLogPath(logsDirectory, logId, sequence, prefix);
+    std::ofstream output(logPath, std::ios::binary | std::ios::trunc);
+    if (!output)
+    {
+        throw std::runtime_error(std::string("unable to write log file: ") + logPath.string());
+    }
+
+    output << content;
 }
 
 }
@@ -253,15 +336,26 @@ int main(int argc, char** argv)
     std::string const systemPrompt = ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
     std::string initialUserPrompt = prompt;
 
-    std::vector<SessionRound> conversationHistory;
+    std::string const logId = GenerateLogId();
+    std::filesystem::path const logsDirectory = GetLogsDirectory();
+    std::cout << "log id: " << logId << std::endl;
+
+    std::vector<ConversationMessage> conversationHistory;
 
     for (int turn = 0; turn < max_turns; ++turn)
     {
+        std::cout << std::endl << "===============================\nTurn " << turn << std::endl << std::endl;
         try
         {
             json const payload = BuildPayload(systemPrompt, initialUserPrompt, conversationHistory);
-            //printf("Sending request to %s with payload:\n%s\n", endpoint.c_str(), payload.c_str());
-            auto modelResponse = ExtractModelContent(HttpPost(endpointDescriptor, payload));
+            WriteLogFile(logsDirectory, logId, turn, "request", payload.dump(2));
+
+            std::string const responseBody = HttpPost(endpointDescriptor, payload);
+
+            json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
+            WriteLogFile(logsDirectory, logId, turn, "response", response.dump(2));
+
+            auto modelResponse = ExtractModelContent(response);
 
             // Show the reasoning stream from the model.
             if (!modelResponse.reasoning.empty())
@@ -280,8 +374,12 @@ int main(int argc, char** argv)
                     std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
 
                     conversationHistory.push_back({
-                        .assistant = std::move(modelResponse.content),
-                        .user      = std::move(toolResult),
+                        .role    = "user",
+                        .content = toolResult,
+                    });
+                    conversationHistory.push_back({
+                        .role    = "assistant",
+                        .content = std::move(modelResponse.content),
                     });
                     continue;
                 }
@@ -303,19 +401,34 @@ int main(int argc, char** argv)
                     break;
                 }
 
-                if (modelResponse.toolCalls.size() > 1)
+                ConversationMessage assistantMessage{
+                    .role      = "assistant",
+                    .content   = std::move(modelResponse.content),
+                    .toolCalls = json::array(),
+                };
+                for (auto const& toolCall : modelResponse.toolCalls)
                 {
-                    std::cerr << "TODO: multiple tool calls. Aborting..." << std::endl;
-                    break;
+                    assistantMessage.toolCalls.push_back({
+                        { "type", "function" },
+                        { "function", {
+                            { "name"     , toolCall.name             },
+                            { "arguments", toolCall.arguments.dump() },
+                        }},
+                        { "id", toolCall.id },
+                    });
                 }
+                conversationHistory.push_back(std::move(assistantMessage));
 
-                auto& toolCall = modelResponse.toolCalls[0];
-                std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
-                std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
-                conversationHistory.push_back({
-                    .assistant = std::move(modelResponse.content),
-                    .user      = std::move(toolResult),
-                });
+                for (auto const& toolCall : modelResponse.toolCalls)
+                {
+                    std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
+                    std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+                    conversationHistory.push_back({
+                        .role        = "tool",
+                        .content     = BuildToolResponseMessage(toolCall.name, toolResult),
+                        .toolCallId  = toolCall.id,
+                    });
+                }
             }
             else
             {

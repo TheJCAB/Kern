@@ -45,12 +45,9 @@ struct ConversationMessage
     json::array_t toolCalls;
 };
 
-json BuildPayload(std::string_view const systemPrompt, std::string_view const initialUserPrompt, std::span<ConversationMessage> const conversationHistory = {})
+json BuildPayload(std::span<ConversationMessage> const conversationHistory = {})
 {
-    auto messages = json::array({
-        { { "role", "system" }, { "content", systemPrompt } },
-        { { "role", "user"   }, { "content", initialUserPrompt   } },
-    });
+    json::array_t messages{};
 
     for (auto& message : conversationHistory)
     {
@@ -186,7 +183,7 @@ std::string GenerateLogId()
     return id;
 }
 
-std::filesystem::path GetLogsDirectory()
+std::filesystem::path const& GetLogsDirectory()
 {
     static auto const path = GetExecutableDirectory() / "logs";
     if (!std::filesystem::exists(path))
@@ -196,26 +193,165 @@ std::filesystem::path GetLogsDirectory()
     return path;
 }
 
-std::filesystem::path BuildLogPath(std::filesystem::path const& logsDirectory, std::string_view const logId, int sequence, std::string_view const prefix)
+struct Log
+{
+    std::string id = GenerateLogId();
+    int         sequence = 0;
+};
+
+std::filesystem::path BuildLogPath(std::string_view const logId, int sequence, std::string_view const name)
 {
     std::ostringstream filename;
-    filename << logId << '_' << std::setw(3) << std::setfill('0') << sequence << '_' << prefix << ".json";
-    return logsDirectory / filename.str();
+    filename << logId << '_' << std::setw(3) << std::setfill('0') << sequence << '_' << name << ".json";
+    return GetLogsDirectory() / filename.str();
 }
 
-void WriteLogFile(std::filesystem::path const& logsDirectory, std::string_view const logId, int sequence, std::string_view const prefix, std::string_view const content)
+void WriteLogFile(Log& log, std::string_view const name, std::string_view const content)
 {
-    auto const logPath = BuildLogPath(logsDirectory, logId, sequence, prefix);
-    std::ofstream output(logPath, std::ios::binary | std::ios::trunc);
-    if (!output)
+    auto const logPath = BuildLogPath(log.id, log.sequence, name);
+    if (auto output = std::ofstream(logPath, std::ios::binary | std::ios::trunc))
+    {
+        output << content;
+    }
+    else
     {
         throw std::runtime_error(std::string("unable to write log file: ") + logPath.string());
     }
-
-    output << content;
 }
 
 }
+
+class ChatSession
+{
+public:
+    ChatSession(Endpoint endpointDescriptor, std::string systemPrompt)
+        : m_endpointDescriptor{ endpointDescriptor }
+    {
+        m_conversationHistory.push_back({ .role = "system", .content = std::move(systemPrompt) });
+
+        std::cout << "log id: " << m_log.id << std::endl;
+    }
+
+    std::string Prompt(std::string prompt, int maxTurns)
+    {
+        if (prompt.empty())
+        {
+            return {};
+        }
+
+        m_conversationHistory.push_back({ .role = "user", .content = std::move(prompt) });
+
+        for (int turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
+        {
+            std::cout << std::endl << "===============================\nTurn " << turn << std::endl << std::endl;
+            try
+            {
+                json const payload = BuildPayload(m_conversationHistory);
+                WriteLogFile(m_log, "request", payload.dump(2));
+
+                std::string const responseBody = HttpPost(m_endpointDescriptor, payload);
+
+                json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
+                WriteLogFile(m_log, "response", response.dump(2));
+
+                auto modelResponse = ExtractModelContent(response);
+
+                // Show the reasoning stream from the model.
+                if (!modelResponse.reasoning.empty())
+                {
+                    std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
+                }
+
+                if (!modelResponse.content.empty())
+                {
+                    // See if we got an old-school textual tool call.
+                    auto toolResponse = ParseToolCall(modelResponse.content, AllTools);
+                    if (toolResponse)
+                    {
+                        auto& toolResult = toolResponse.value();
+
+                        std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+
+                        m_conversationHistory.push_back({
+                            .role    = "user",
+                            .content = toolResult,
+                        });
+                        m_conversationHistory.push_back({
+                            .role    = "assistant",
+                            .content = std::move(modelResponse.content),
+                        });
+                        continue;
+                    }
+                    else
+                    {
+                        std::cout << "assistant> " << modelResponse.content << std::endl << std::endl;
+                    }
+                }
+
+                if (modelResponse.reason == ResponseFinishReason::stop)
+                {
+                    m_conversationHistory.push_back({
+                        .role      = "assistant",
+                        .content   = modelResponse.content,
+                    });
+                    return std::move(modelResponse.content);
+                }
+                else if (modelResponse.reason == ResponseFinishReason::tool_calls)
+                {
+                    if (modelResponse.toolCalls.empty())
+                    {
+                        std::cerr << "The model said it was calling tools, but we didn't find any tool to call" << std::endl;
+                        throw std::runtime_error("The model said it was calling tools, but we didn't find any tool to call");
+                    }
+
+                    ConversationMessage assistantMessage{
+                        .role      = "assistant",
+                        .content   = std::move(modelResponse.content),
+                        .toolCalls = json::array(),
+                    };
+                    for (auto const& toolCall : modelResponse.toolCalls)
+                    {
+                        assistantMessage.toolCalls.push_back({
+                            { "type", "function" },
+                            { "function", {
+                                { "name"     , toolCall.name             },
+                                { "arguments", toolCall.arguments.dump() },
+                            }},
+                            { "id", toolCall.id },
+                        });
+                    }
+                    m_conversationHistory.push_back(std::move(assistantMessage));
+
+                    for (auto const& toolCall : modelResponse.toolCalls)
+                    {
+                        std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
+                        std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+                        m_conversationHistory.push_back({
+                            .role        = "tool",
+                            .content     = BuildToolResponseMessage(toolCall.name, toolResult),
+                            .toolCallId  = toolCall.id,
+                        });
+                    }
+                }
+                else
+                {
+                    std::cerr << "TODO: stop reason " << to_string(modelResponse.reason);
+                    throw std::runtime_error(std::string("TODO: stop reason ") + to_string(modelResponse.reason));
+                }
+            }
+            catch (std::exception const& error)
+            {
+                std::cerr << "agent error: " << error.what() << std::endl;
+                throw;
+            }
+        }
+    }
+
+private:
+    Endpoint                         m_endpointDescriptor;
+    std::vector<ConversationMessage> m_conversationHistory;
+    Log                              m_log;
+};
 
 int main(int argc, char** argv)
 {
@@ -247,120 +383,12 @@ int main(int argc, char** argv)
 
     if (prompt.empty())
     {
-        prompt = "Read the README.md file and summarise it in one paragraph.";
+        prompt = "Tell me about yourself.";
     }
 
-    Endpoint const endpointDescriptor = ParseEndpoint(endpoint);
+    ChatSession session{ ParseEndpoint(endpoint), ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt") };
 
-    std::string const systemPrompt = ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
-    std::string initialUserPrompt = prompt;
-
-    std::string const logId = GenerateLogId();
-    std::filesystem::path const logsDirectory = GetLogsDirectory();
-    std::cout << "log id: " << logId << std::endl;
-
-    std::vector<ConversationMessage> conversationHistory;
-
-    for (int turn = 0; turn < max_turns; ++turn)
-    {
-        std::cout << std::endl << "===============================\nTurn " << turn << std::endl << std::endl;
-        try
-        {
-            json const payload = BuildPayload(systemPrompt, initialUserPrompt, conversationHistory);
-            WriteLogFile(logsDirectory, logId, turn, "request", payload.dump(2));
-
-            std::string const responseBody = HttpPost(endpointDescriptor, payload);
-
-            json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
-            WriteLogFile(logsDirectory, logId, turn, "response", response.dump(2));
-
-            auto modelResponse = ExtractModelContent(response);
-
-            // Show the reasoning stream from the model.
-            if (!modelResponse.reasoning.empty())
-            {
-                std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
-            }
-
-            if (!modelResponse.content.empty())
-            {
-                // See if we got an old-school textual tool call.
-                auto toolResponse = ParseToolCall(modelResponse.content, AllTools);
-                if (toolResponse)
-                {
-                    auto& toolResult = toolResponse.value();
-
-                    std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
-
-                    conversationHistory.push_back({
-                        .role    = "user",
-                        .content = toolResult,
-                    });
-                    conversationHistory.push_back({
-                        .role    = "assistant",
-                        .content = std::move(modelResponse.content),
-                    });
-                    continue;
-                }
-                else
-                {
-                    std::cout << "assistant> " << modelResponse.content << std::endl << std::endl;
-                }
-            }
-
-            if (modelResponse.reason == ResponseFinishReason::stop)
-            {
-                break;
-            }
-            else if (modelResponse.reason == ResponseFinishReason::tool_calls)
-            {
-                if (modelResponse.toolCalls.empty())
-                {
-                    std::cerr << "The model said it was calling tools, but we didn't find any tool to call" << std::endl;
-                    break;
-                }
-
-                ConversationMessage assistantMessage{
-                    .role      = "assistant",
-                    .content   = std::move(modelResponse.content),
-                    .toolCalls = json::array(),
-                };
-                for (auto const& toolCall : modelResponse.toolCalls)
-                {
-                    assistantMessage.toolCalls.push_back({
-                        { "type", "function" },
-                        { "function", {
-                            { "name"     , toolCall.name             },
-                            { "arguments", toolCall.arguments.dump() },
-                        }},
-                        { "id", toolCall.id },
-                    });
-                }
-                conversationHistory.push_back(std::move(assistantMessage));
-
-                for (auto const& toolCall : modelResponse.toolCalls)
-                {
-                    std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
-                    std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
-                    conversationHistory.push_back({
-                        .role        = "tool",
-                        .content     = BuildToolResponseMessage(toolCall.name, toolResult),
-                        .toolCallId  = toolCall.id,
-                    });
-                }
-            }
-            else
-            {
-                std::cerr << "TODO: stop reason " << to_string(modelResponse.reason);
-                break;
-            }
-        }
-        catch (std::exception const& error)
-        {
-            std::cerr << "agent error: " << error.what() << std::endl;
-            return 1;
-        }
-    }
+    session.Prompt(prompt, max_turns);
 
     return 0;
 }

@@ -3,6 +3,9 @@
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
+#include "Tools/read_file chunk.h"
+#include "Tools/read_file.h"
+#include "Tools/write_file.h"
 
 #include <nlohmann/json.hpp>
 
@@ -19,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 using json = nlohmann::json;
@@ -26,36 +30,11 @@ using json = nlohmann::json;
 namespace
 {
 
-constexpr ToolParameter ReadFileToolParameters[] =
-{
-    { "path"   , "The path to the file to read." },
-};    
-
-constexpr ToolParameter WriteFileToolParameters[] =
-{
-    { "path"   , "The path to the file to write."    },
-    { "content", "The content to write to the file." },
-};    
-
-std::string ReadFileTool(json const& arguments)
-{
-    auto& path = arguments.at("path").get_ref<std::string const&>();
-    return ReadTextFile(path);
-}
-
-std::string WriteFileTool(json const& arguments)
-{
-    auto& path    = arguments.at("path"   ).get_ref<std::string const&>();
-    auto& content = arguments.at("content").get_ref<std::string const&>();
-
-    WriteTextFile(path, content);
-    return "[write_file] ok";
-}
-
 constexpr ToolDefinition AllTools[] =
 {
-    { "read_file" , "Read the contents of a file.", ReadFileToolParameters , ReadFileTool  },
-    { "write_file", "Write content to a file."    , WriteFileToolParameters, WriteFileTool },
+    //read_file,
+    read_file_chunk,
+    write_file,
 };
 
 struct ConversationMessage
@@ -68,42 +47,6 @@ struct ConversationMessage
 
 json BuildPayload(std::string_view const systemPrompt, std::string_view const initialUserPrompt, std::span<ConversationMessage> const conversationHistory = {})
 {
-    auto tools = json::array();
-    for (auto&& toolDef : AllTools)
-    {
-        json toolJson = {
-            { "name"       , toolDef.name        },
-            { "description", toolDef.description },
-        };
-
-        if (!toolDef.parameters.empty())
-        {
-            json parametersJson = {
-                { "type"      , "object" },
-                { "properties", json::object() },
-                { "required"  , json::array()  },
-            };
-
-            for (auto&& param : toolDef.parameters)
-            {
-                parametersJson["properties"][param.name] = {
-                    { "type"       , "string"      },
-                    { "description", param.description },
-                };
-                parametersJson["required"].push_back(param.name);
-            }
-
-            toolJson["parameters"] = std::move(parametersJson);
-        }
-
-        tools.push_back(
-            json::object({
-                { "type"    , "function" },
-                { "function", std::move(toolJson) },
-            })
-        );
-    }
-
     auto messages = json::array({
         { { "role", "system" }, { "content", systemPrompt } },
         { { "role", "user"   }, { "content", initialUserPrompt   } },
@@ -132,7 +75,7 @@ json BuildPayload(std::string_view const systemPrompt, std::string_view const in
     return json{
         { "model", "gemma-4" },
         { "messages", std::move(messages) },
-        { "tools", std::move(tools) },
+        { "tools", BuildPayloadToolDefinitions(AllTools) },
         //{ "max_tokens", 1024 },
         //{ "temperature", 0.7 },
         //{ "top_p", 1.0 },
@@ -161,13 +104,6 @@ std::string to_string(ResponseFinishReason const reason)
     default                                  : return "<unknown ResponseFinishReason>";
     }
 }
-
-struct ToolCall
-{
-    std::string id;
-    std::string name;
-    json        arguments;
-};
 
 struct ModelResponse
 {
@@ -208,24 +144,7 @@ ModelResponse ExtractModelContent(json const& response)
 
     result.content   = message.value<std::string>("content"          , {});
     result.reasoning = message.value<std::string>("reasoning_content", {});
-
-    for (auto& toolCall : message.value<json::array_t>("tool_calls", {}))
-    {
-        if (toolCall.value<std::string>("type", {}) != "function")
-        {
-            continue;
-        }
-        auto& function         = toolCall.at("function");
-        auto functionName      = function.value<std::string>("name", {});
-        if (!functionName.empty())
-        {
-            result.toolCalls.push_back({
-                .id        = toolCall.value<std::string>("id", {}),
-                .name      = std::move(functionName),
-                .arguments = json::parse(function.value<std::string>("arguments", {}), nullptr, 0),
-            });
-        }
-    }
+    result.toolCalls = ParseToolCalls(message.value<json::array_t>("tool_calls", {}));
 
     return result;
 }
@@ -302,7 +221,7 @@ int main(int argc, char** argv)
 {
     std::string endpoint = "http://127.0.0.1:8080/v1/chat/completions";
     std::string prompt;
-    int max_turns = 3;
+    int max_turns = 10;
 
     for (int i = 1; i < argc; ++i)
     {

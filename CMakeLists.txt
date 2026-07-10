@@ -27,6 +27,8 @@ add_executable(agent_harness
 
 target_compile_features(agent_harness PRIVATE cxx_std_20)
 
+target_include_directories(agent_harness PRIVATE src)
+
 target_link_libraries(agent_harness PRIVATE nlohmann_json::nlohmann_json)
 
 set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:agent_harness>/data)

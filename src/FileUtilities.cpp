@@ -23,6 +23,42 @@ std::string ReadTextFile(std::filesystem::path const& path)
     return buffer.str();
 }
 
+FileChunk ReadTextFileChunk(std::filesystem::path const& path, int64_t const startLine, int64_t const endLine)
+{
+    if (startLine < 1 || endLine < 1 || startLine > endLine)
+    {
+        return {};
+    }
+
+    std::ifstream input(path);
+    if (!input)
+    {
+        throw std::runtime_error{ "error: could not open file" };
+    }
+
+    FileChunk result;
+    int64_t lineNumber = 1;
+    for (; lineNumber <= endLine; ++lineNumber)
+    {
+        std::string line;
+        if (!std::getline(input, line))
+        {
+            break;
+        }
+
+        if (lineNumber >= startLine)
+        {
+            result.lines.push_back(std::move(line));
+        }
+    }
+
+    if (result.lines.empty())
+    {
+        result.startLine = lineNumber;
+    }
+    return result;
+}
+
 void WriteTextFile(std::filesystem::path const& path, std::string_view const content)
 {
     std::filesystem::create_directories(path.parent_path());

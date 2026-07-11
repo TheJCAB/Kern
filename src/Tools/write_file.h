@@ -14,9 +14,9 @@ inline std::string WriteFileTool(json const& arguments)
 
 constexpr ToolParameter WriteFileToolParameters[] =
 {
-    StringToolParameter{ "path"   , "The path to the file to write"    },
-    StringToolParameter{ "content", "The content to write to the file" },
-};    
+    StringToolParameter{ { "path"   , "The path to the file to write"    } },
+    StringToolParameter{ { "content", "The content to write to the file" } },
+};
 
 constexpr ToolDefinition write_file
 {

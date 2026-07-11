@@ -11,8 +11,8 @@ inline std::string ReadFileTool(json const& arguments)
 
 constexpr ToolParameter ReadFileToolParameters[] =
 {
-    StringToolParameter{ "path", "The path to the file to read" },
-};    
+    StringToolParameter{ { "path", "The path to the file to read" } },
+};
 
 constexpr ToolDefinition read_file
 {

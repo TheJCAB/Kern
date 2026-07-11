@@ -39,8 +39,8 @@ struct ToolDefinition
 {
     std::string_view               name;
     std::string_view               description;
-    std::span<ToolParameter const> requiredParameters;
-    std::span<ToolParameter const> optionalParameters;
+    std::span<ToolParameter const> requiredParameters{};
+    std::span<ToolParameter const> optionalParameters{};
     ToolCallable&                  callTool;
 };
 

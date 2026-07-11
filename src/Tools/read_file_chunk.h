@@ -41,9 +41,9 @@ inline std::string ReadFileChunkTool(json const& arguments)
 
 constexpr ToolParameter ReadFileChunkToolParameters[] =
 {
-    StringToolParameter { "path", "The path to the file to read" },
-    IntegerToolParameter{ "start_line", "The first line to include", 1 },
-    IntegerToolParameter{ "end_line", "The last line to include"   , 1 },
+    StringToolParameter { { "path", "The path to the file to read"    } },
+    IntegerToolParameter{ { "start_line", "The first line to include" }, std::optional<std::int64_t>{1}, std::nullopt },
+    IntegerToolParameter{ { "end_line", "The last line to include"    }, std::optional<std::int64_t>{1}, std::nullopt },
 };
 
 constexpr ToolDefinition read_file_chunk

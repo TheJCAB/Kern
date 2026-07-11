@@ -4,7 +4,7 @@
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 #include "Tools/glob.h"
-#include "Tools/read_file chunk.h"
+#include "Tools/read_file_chunk.h"
 #include "Tools/read_file.h"
 #include "Tools/write_file.h"
 
@@ -41,10 +41,10 @@ constexpr ToolDefinition AllTools[] =
 
 struct ConversationMessage
 {
-    std::string   role;
-    std::string   content;
-    std::string   toolCallId;
-    json::array_t toolCalls;
+    std::string   role      {};
+    std::string   content   {};
+    std::string   toolCallId{};
+    json::array_t toolCalls {};
 };
 
 json BuildPayload(std::span<ConversationMessage> const conversationHistory = {})
@@ -329,9 +329,9 @@ public:
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
                         std::cout << "tool> " << toolCall.name << '(' << Utf8ToSystemEncoding(OneLine(toolCall.arguments.dump(), 20)) << ") -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
                         m_conversationHistory.push_back({
-                            .role        = "tool",
-                            .content     = BuildToolResponseMessage(toolCall.name, toolResult),
-                            .toolCallId  = toolCall.id,
+                            .role       = "tool",
+                            .content    = BuildToolResponseMessage(toolCall.name, toolResult),
+                            .toolCallId = toolCall.id,
                         });
                     }
                 }
@@ -347,6 +347,8 @@ public:
                 throw;
             }
         }
+
+        return "The model took too many turns";
     }
 
 private:

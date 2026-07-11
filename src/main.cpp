@@ -3,7 +3,9 @@
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
+#include "Tools/edit_file_lines.h"
 #include "Tools/glob.h"
+#include "Tools/grep.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/read_file.h"
 #include "Tools/write_file.h"
@@ -35,7 +37,9 @@ constexpr ToolDefinition AllTools[] =
 {
     //read_file,
     glob,
+    grep,
     read_file_chunk,
+    edit_file_lines,
     write_file,
 };
 

@@ -6,8 +6,25 @@ ColumnLimit: 0
 IndentCaseLabels: false
 
 BreakBeforeBraces: Allman
+BreakConstructorInitializers: BeforeComma
+BreakInheritanceList: BeforeComma
 AllowShortIfStatementsOnASingleLine: true
 PointerAlignment: Left
 SpaceAroundPointerQualifiers: Default
 QualifierAlignment: Custom
-QualifierOrder: [inline, static, type, const]
+QualifierOrder: [friend, constexpr, static, inline, type, const, volatile]
+SeparateDefinitionBlocks: Always
+
+AlignArrayOfStructures: Right
+AlignConsecutiveDeclarations: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveBitFields: true
+AlignConsecutiveMacros: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AlignCaseColons: true
+AlignEscapedNewlines: Left
+AlignOperands: DontAlign
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 2

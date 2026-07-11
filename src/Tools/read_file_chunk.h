@@ -8,13 +8,13 @@
 #include <sstream>
 #include <stdexcept>
 
-inline std::string ReadFileChunkTool(json const& arguments)
+inline std::string ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& context)
 {
     auto const& path       = arguments.at("path").get_ref<std::string const&>();
     auto const start_line  = arguments.value("start_line", int64_t{1});
     auto const end_line    = arguments.value("end_line", std::numeric_limits<int64_t>::max());
 
-    FileChunk chunk = ReadTextFileChunk(path, start_line, end_line);
+    FileChunk chunk = context.fs.ReadTextFileChunk(path, start_line, end_line);
 
     json response
     {

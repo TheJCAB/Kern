@@ -1,4 +1,3 @@
-
 #include "FileUtilities.h"
 
 #if _WIN32
@@ -7,11 +6,12 @@
 
 #include <exception>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
 
-std::string ReadTextFile(std::filesystem::path const& path)
+std::string RawReadTextFile(std::filesystem::path const& path)
 {
     std::ifstream input(path);
     if (!input)
@@ -23,7 +23,7 @@ std::string ReadTextFile(std::filesystem::path const& path)
     return buffer.str();
 }
 
-FileChunk ReadTextFileChunk(std::filesystem::path const& path, int64_t const startLine, int64_t const endLine)
+FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t const startLine, int64_t const endLine)
 {
     if (startLine < 1 || endLine < 1 || startLine > endLine)
     {
@@ -59,7 +59,7 @@ FileChunk ReadTextFileChunk(std::filesystem::path const& path, int64_t const sta
     return result;
 }
 
-void WriteTextFile(std::filesystem::path const& path, std::string_view const content)
+void RawWriteTextFile(std::filesystem::path const& path, std::string_view const content)
 {
     auto const parentPath = path.parent_path();
     if (!parentPath.empty() && !std::filesystem::exists(parentPath))
@@ -103,4 +103,135 @@ std::filesystem::path GetExecutableDirectory()
         }
         ();
     return exe_dir;
+}
+
+
+bool MatchGlobSegment(std::filesystem::path::string_type const& pattern, std::filesystem::path::string_type const& text)
+{
+    using Char = std::filesystem::path::value_type;
+
+    std::size_t patternIndex = 0;
+    std::size_t textIndex = 0;
+    std::size_t lastStar = pattern.npos;
+    std::size_t lastMatch = 0;
+
+    while (textIndex < text.size())
+    {
+        if (patternIndex < pattern.size() && pattern[patternIndex] == Char{'*'})
+        {
+            lastStar = patternIndex;
+            lastMatch = textIndex;
+            ++patternIndex;
+        }
+        else if (patternIndex < pattern.size() && (pattern[patternIndex] == Char{'?'} || pattern[patternIndex] == text[textIndex]))
+        {
+            ++patternIndex;
+            ++textIndex;
+        }
+        else if (lastStar != std::string_view::npos)
+        {
+            patternIndex = lastStar + 1;
+            ++lastMatch;
+            textIndex = lastMatch;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    while (patternIndex < pattern.size() && pattern[patternIndex] == '*')
+    {
+        ++patternIndex;
+    }
+
+    return patternIndex == pattern.size();
+}
+
+bool MatchGlobPath(std::filesystem::path const& pattern, std::filesystem::path const& text)
+{
+    std::vector const patternSegments(pattern.begin(), pattern.end());
+    std::vector const textSegments   (text   .begin(), text   .end());
+
+    std::function<bool(std::size_t, std::size_t)> matchSegments = [&](std::size_t patternIndex, std::size_t textIndex) -> bool
+    {
+        if (patternIndex == patternSegments.size())
+        {
+            return textIndex == textSegments.size();
+        }
+
+        auto const& patternSegment = patternSegments[patternIndex];
+        if (patternSegment == "**")
+        {
+            if (patternIndex + 1 == patternSegments.size())
+            {
+                return true;
+            }
+            for (std::size_t i = textIndex; i <= textSegments.size(); ++i)
+            {
+                if (matchSegments(patternIndex + 1, i))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if (textIndex >= textSegments.size())
+        {
+            return false;
+        }
+
+        if (!MatchGlobSegment(patternSegment, textSegments[textIndex]))
+        {
+            return false;
+        }
+
+        return matchSegments(patternIndex + 1, textIndex + 1);
+    };
+
+    return matchSegments(0, 0);
+}
+
+std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern)
+{
+    std::filesystem::path const canonicalizedRootDir = std::filesystem::canonical(rootDir.lexically_normal());
+    std::filesystem::path normalizedPattern = pattern.lexically_normal().lexically_proximate(canonicalizedRootDir);
+    if (normalizedPattern.empty() || *normalizedPattern.begin() == "..")
+    {
+        throw std::runtime_error("error: malformed pattern");
+    }
+
+    // Special-case: for now this is implied.
+    // TODO: Implement more complete/comprehensive globbing.
+    if (*normalizedPattern.begin() == "**")
+    {
+        normalizedPattern = normalizedPattern.lexically_relative("**");
+    }
+
+    std::vector<std::filesystem::path> matches;
+
+    std::error_code error;
+    for (auto const& entry : std::filesystem::recursive_directory_iterator(rootDir, std::filesystem::directory_options::skip_permission_denied, error))
+    {
+        if (error)
+        {
+            break;
+        }
+
+        if (!entry.is_regular_file(error))
+        {
+            continue;
+        }
+
+        auto relativePath = std::filesystem::relative(entry.path(), rootDir);
+        if (MatchGlobPath(normalizedPattern, relativePath))
+        {
+            matches.push_back(std::move(relativePath));
+        }
+    }
+
+    std::sort(matches.begin(), matches.end());
+
+    return matches;
 }

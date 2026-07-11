@@ -1,6 +1,5 @@
 #pragma once
 
-#include <FileUtilities.h>
 #include <ToolUtilities.h>
 
 #include <sstream>
@@ -65,7 +64,7 @@ std::vector<std::string> ParseReplacementLines(std::string_view const content)
 }
 }
 
-inline std::string EditFileLinesTool(json const& arguments)
+inline std::string EditFileLinesTool(json const& arguments, ToolsRuntimeContext const& context)
 {
     auto const& path = arguments.at("path").get_ref<std::string const&>();
     auto const& operation = arguments.at("operation").get_ref<std::string const&>();
@@ -78,7 +77,7 @@ inline std::string EditFileLinesTool(json const& arguments)
         throw std::runtime_error("error: invalid line range");
     }
 
-    std::string const original = ReadTextFile(path);
+    std::string const original = context.fs.ReadTextFile(path);
     auto lines = SplitLines(original);
 
     auto const makeIndex = [&](int64_t const lineNumber, bool const allowPastEnd) -> std::size_t
@@ -140,7 +139,7 @@ inline std::string EditFileLinesTool(json const& arguments)
         throw std::runtime_error("error: unsupported operation");
     }
 
-    WriteTextFile(path, JoinLines(updatedLines));
+    RawWriteTextFile(path, JoinLines(updatedLines));
 
     json response
     {

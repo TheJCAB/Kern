@@ -24,10 +24,14 @@ CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
 
 add_executable(kern
     src/FileUtilities.cpp       src/FileUtilities.h
+    src/FileValidation.cpp      src/FileValidation.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
 
+    src/Tools/edit_file_lines.h
+    src/Tools/glob.h
+    src/Tools/grep.h
     src/Tools/read_file.h
     src/Tools/read_file_chunk.h
     src/Tools/write_file.h

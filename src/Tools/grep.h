@@ -15,17 +15,19 @@
 namespace
 {
 
-// Placeholder for search logic (similar to GlobTool but for grep)
-std::string GrepTool(json const& arguments)
-{
-    // For demonstration, we will assume the tool searches a single file for a pattern.
-    auto const pattern  = arguments.at("pattern"  ).get_ref<std::string const&>();
-    auto const filePath = arguments.at("file_path").get_ref<std::string const&>();
+// TODO: Search in files using glob wildcards.
+// TODO: Search using regular expressions.
+// TODO: Allow case-insensitive searches (UNICODE makes this "fun"!?).
 
-    std::ifstream file(filePath);
+std::string GrepTool(json const& arguments, ToolsRuntimeContext const& context)
+{
+    auto                  const pattern  = arguments.at("pattern").get_ref<std::string const&>();
+    std::filesystem::path const filePath = arguments.at("path"   ).get_ref<std::string const&>();
+
+    std::ifstream file(context.fs.ValidatePath(filePath));
     if (!file.is_open())
     {
-        throw std::runtime_error("error: could not open file: " + filePath);
+        throw std::runtime_error("error: could not open file: " + filePath.string());
     }
 
     std::string              line;
@@ -41,9 +43,9 @@ std::string GrepTool(json const& arguments)
 
     // Construct JSON response
     json response = {
-        {  "pattern",       pattern},
-        {"file_path",      filePath},
-        {  "matches", json::array()},
+        { "pattern", pattern       },
+        { "path"   , filePath      },
+        { "matches", json::array() },
     };
 
     auto& matchArray = response["matches"];
@@ -59,14 +61,14 @@ std::string GrepTool(json const& arguments)
 
 constexpr ToolParameter GrepToolParameters[] =
 {
-    StringToolParameter{ { "pattern"  , "The search pattern to look for in the file." } },
-    StringToolParameter{ { "file_path", "The path to the file to search."             } },
+    StringToolParameter{ { "pattern", "The search string to look for in the file" } },
+    StringToolParameter{ { "path"   , "The path to the file to search"            } },
 };
 
 constexpr ToolDefinition grep
 {
     .name               = "grep",
-    .description        = "Search for a pattern within a file. Supports basic string matching.",
+    .description        = "Search for a pattern within a file. Supports basic string matching",
     .requiredParameters = GrepToolParameters,
     .callTool           = GrepTool,
 };

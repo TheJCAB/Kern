@@ -3,12 +3,12 @@
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
 
-inline std::string WriteFileTool(json const& arguments)
+inline std::string WriteFileTool(json const& arguments, ToolsRuntimeContext const& context)
 {
     auto& path    = arguments.at("path"   ).get_ref<std::string const&>();
     auto& content = arguments.at("content").get_ref<std::string const&>();
 
-    WriteTextFile(path, content);
+    context.fs.WriteTextFile(path, content);
     return "[write_file] ok";
 }
 

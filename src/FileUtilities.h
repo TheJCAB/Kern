@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-std::string ReadTextFile(std::filesystem::path const& path);
+std::string RawReadTextFile(std::filesystem::path const& path);
 
 struct FileChunk
 {
@@ -13,8 +13,10 @@ struct FileChunk
     std::vector<std::string> lines;
 };
 
-FileChunk ReadTextFileChunk(std::filesystem::path const& path, int64_t startLine, int64_t endLine);
+FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t startLine, int64_t endLine);
 
-void WriteTextFile(std::filesystem::path const& path, std::string_view content);
+void RawWriteTextFile(std::filesystem::path const& path, std::string_view content);
 
 std::filesystem::path GetExecutableDirectory();
+
+std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern);

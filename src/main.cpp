@@ -230,8 +230,9 @@ void WriteLogFile(Log& log, std::string_view const name, std::string_view const 
 class ChatSession
 {
 public:
-    ChatSession(Endpoint endpointDescriptor, std::string systemPrompt)
-        : m_endpointDescriptor{ endpointDescriptor }
+    ChatSession(Endpoint endpointDescriptor, ToolsRuntimeContext toolContext, std::string systemPrompt)
+        : m_endpointDescriptor{ endpointDescriptor     }
+        , m_toolContext       { std::move(toolContext) }
     {
         m_conversationHistory.push_back({ .role = "system", .content = std::move(systemPrompt) });
 
@@ -271,7 +272,7 @@ public:
                 if (!modelResponse.content.empty())
                 {
                     // See if we got an old-school textual tool call.
-                    auto toolResponse = ParseToolCall(modelResponse.content, AllTools);
+                    auto toolResponse = ParseToolCall(modelResponse.content, m_toolContext, AllTools);
                     if (toolResponse)
                     {
                         auto& toolResult = toolResponse.value();
@@ -330,7 +331,7 @@ public:
 
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
-                        std::string toolResult = CallTool(toolCall.name, toolCall.arguments, AllTools);
+                        std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, AllTools);
                         std::cout << "tool> " << toolCall.name << '(' << Utf8ToSystemEncoding(OneLine(toolCall.arguments.dump(), 20)) << ") -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
                         m_conversationHistory.push_back({
                             .role       = "tool",
@@ -357,6 +358,7 @@ public:
 
 private:
     Endpoint                         m_endpointDescriptor;
+    ToolsRuntimeContext                      m_toolContext;
     std::vector<ConversationMessage> m_conversationHistory;
     Log                              m_log;
 };
@@ -396,7 +398,9 @@ int main(int argc, char** argv)
         prompt = "Tell me about yourself.";
     }
 
-    ChatSession session{ ParseEndpoint(endpoint), ReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt") };
+    ToolsRuntimeContext toolContext{ .fs{ std::filesystem::current_path() } };
+
+    ChatSession session{ ParseEndpoint(endpoint), toolContext, RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt") };
 
     session.Prompt(prompt, max_turns);
 

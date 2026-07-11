@@ -177,7 +177,7 @@ std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadTyp
 {
     auto sock = Socket::Connect(endpoint);
 
-    std::string request = ReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
+    std::string request = RawReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
     ReplaceNewlinesIn(request, "\r\n"); // HTTP 1.1 requires CRLF line endings.
     ReplaceIn(request, "@@endpointPath@@", endpoint.path);
     ReplaceIn(request, "@@endpointHost@@", endpoint.host);

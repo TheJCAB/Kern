@@ -3,6 +3,7 @@
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
+#include "Tools/glob.h"
 #include "Tools/read_file chunk.h"
 #include "Tools/read_file.h"
 #include "Tools/write_file.h"
@@ -33,6 +34,7 @@ namespace
 constexpr ToolDefinition AllTools[] =
 {
     //read_file,
+    glob,
     read_file_chunk,
     write_file,
 };

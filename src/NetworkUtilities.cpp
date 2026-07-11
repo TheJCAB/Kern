@@ -67,12 +67,12 @@ Socket Socket::Connect(Endpoint const& endpoint)
     static WSADATA wsaData =
         []()
         {
-            WSADATA wsaData;
-            if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+            WSADATA result;
+            if (WSAStartup(MAKEWORD(2, 2), &result) != 0)
             {
                 throw std::runtime_error("WSAStartup failed.");
             }
-            return wsaData;
+            return result;
         }
         ();
 #endif
@@ -95,7 +95,7 @@ Socket Socket::Connect(Endpoint const& endpoint)
         {
             continue;
         }
-        if (connect(result.m_sock, current->ai_addr, current->ai_addrlen) == 0)
+        if (connect(result.m_sock, current->ai_addr, static_cast<int>(current->ai_addrlen)) == 0)
         {
             break;
         }
@@ -141,7 +141,7 @@ void Socket::Send(std::string_view const data, std::string_view const descriptio
 {
     if (!*this) throw std::runtime_error("socket is not connected");
 
-    if (send(m_sock, data.data(), data.size(), 0) < 0)
+    if (send(m_sock, data.data(), static_cast<int>(data.size()), 0) < 0)
     {
         Close();
         if (description.empty())

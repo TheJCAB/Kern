@@ -61,7 +61,11 @@ FileChunk ReadTextFileChunk(std::filesystem::path const& path, int64_t const sta
 
 void WriteTextFile(std::filesystem::path const& path, std::string_view const content)
 {
-    std::filesystem::create_directories(path.parent_path());
+    auto const parentPath = path.parent_path();
+    if (!parentPath.empty() && !std::filesystem::exists(parentPath))
+    {
+        std::filesystem::create_directories(path.parent_path());
+    }
     std::ofstream output(path, std::ios::trunc);
     if (!output)
     {

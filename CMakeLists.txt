@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(gemma_agent_harness LANGUAGES CXX)
+project(kern LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,7 +22,7 @@ include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
 CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
 
-add_executable(agent_harness
+add_executable(kern
     src/FileUtilities.cpp       src/FileUtilities.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/StringUtilities.cpp     src/StringUtilities.h
@@ -35,13 +35,13 @@ add_executable(agent_harness
     src/main.cpp
 )
 
-target_compile_features(agent_harness PRIVATE cxx_std_20)
+target_compile_features(kern PRIVATE cxx_std_20)
 
-target_include_directories(agent_harness PRIVATE src)
+target_include_directories(kern PRIVATE src)
 
-target_link_libraries(agent_harness PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(kern PRIVATE nlohmann_json::nlohmann_json)
 
-set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:agent_harness>/data)
+set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:kern>/data)
 
 add_custom_target(copy_runtime_data ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -50,4 +50,4 @@ add_custom_target(copy_runtime_data ALL
     COMMENT "Copying runtime data into the build output directory"
 )
 
-add_dependencies(agent_harness copy_runtime_data)
+add_dependencies(kern copy_runtime_data)

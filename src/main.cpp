@@ -137,9 +137,9 @@ ModelResponse ExtractModelContent(json const& response)
         throw std::runtime_error(std::string("malformed response: unknown finish_reason: ") + finishReason);
     }
 
-    if (result.reason != ResponseFinishReason::stop)
+    if (result.reason != ResponseFinishReason::stop && result.reason != ResponseFinishReason::tool_calls)
     {
-        std::cout << "Response: " << Utf8ToSystemEncoding(response.dump(2)) << std::endl;
+        std::cout << "Response:\n" << Utf8ToSystemEncoding(response.dump(2)) << std::endl << std::endl;
     }
 
     json const& message = choice.at("message");

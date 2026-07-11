@@ -4,6 +4,7 @@
 #include <Windows.h>
 #endif
 
+#include <algorithm>
 #include <exception>
 #include <fstream>
 #include <functional>

@@ -5,13 +5,14 @@
 #include <Windows.h>
 #endif
 
-#include <algorithm>
-#include <exception>
-#include <fstream>
-#include <functional>
-#include <sstream>
-#include <iostream>
-#include <stdexcept>
+import std;
+//#include <algorithm>
+//#include <exception>
+//#include <fstream>
+//#include <functional>
+//#include <sstream>
+//#include <iostream>
+//#include <stdexcept>
 
 
 std::string RawReadTextFile(std::filesystem::path const& path)

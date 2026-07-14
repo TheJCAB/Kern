@@ -39,7 +39,10 @@ inline std::string GlobTool(json const& arguments, ToolsRuntimeContext const& co
     auto& matchArray = response["matches"];
     for (auto const& match : matches)
     {
-        matchArray.push_back(match.generic_string());
+        matchArray.push_back({
+            { "path"  , match.name.generic_string() },
+            { "is_dir", match.type == std::filesystem::file_type::directory },
+        });
     }
 
     return response.dump();
@@ -47,7 +50,7 @@ inline std::string GlobTool(json const& arguments, ToolsRuntimeContext const& co
 
 constexpr ToolParameter GlobToolParameters[] =
 {
-    StringToolParameter{ "pattern", "The glob pattern to match, relative to root_dir" },
+    StringToolParameter{ "pattern", "The glob pattern to match, relative to root_dir. Supports only '*' (no '**' or '?')" },
 };
 
 constexpr ToolParameter GlobToolOptionalParameters[] =
@@ -58,7 +61,7 @@ constexpr ToolParameter GlobToolOptionalParameters[] =
 constexpr ToolDefinition glob
 {
     .name               = "glob",
-    .description        = "Find files matching a glob pattern under a directory. Supports *, **, and ?.",
+    .description        = "Find files matching a glob pattern under a directory.",
     .requiredParameters = GlobToolParameters,
     .optionalParameters = GlobToolOptionalParameters,
     .callTool           = GlobTool,

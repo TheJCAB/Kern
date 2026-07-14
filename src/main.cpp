@@ -447,7 +447,7 @@ int main(int argc, char** argv)
     Endpoint endpoint = llamacppEndpoint;
     std::string model = "gemma4";
     std::string prompt;
-    int max_turns = 10;
+    int max_turns = 50;
 
     try
     {

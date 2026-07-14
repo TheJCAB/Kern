@@ -1,3 +1,4 @@
+
 #include "FileUtilities.h"
 
 #if _WIN32
@@ -11,6 +12,7 @@
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
+
 
 std::string RawReadTextFile(std::filesystem::path const& path)
 {
@@ -194,7 +196,7 @@ bool MatchGlobPath(std::filesystem::path const& pattern, std::filesystem::path c
     return matchSegments(0, 0);
 }
 
-std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern)
+std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern)
 {
     std::filesystem::path const canonicalizedRootDir = std::filesystem::canonical(rootDir.lexically_normal());
     std::filesystem::path normalizedPattern = pattern.lexically_normal().lexically_proximate(canonicalizedRootDir);
@@ -210,7 +212,7 @@ std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, st
         normalizedPattern = normalizedPattern.lexically_relative("**");
     }
 
-    std::vector<std::filesystem::path> matches;
+    std::vector<GlobResult> matches;
 
     std::error_code error;
     for (auto const& entry : std::filesystem::recursive_directory_iterator(rootDir, std::filesystem::directory_options::skip_permission_denied, error))
@@ -220,7 +222,7 @@ std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, st
             break;
         }
 
-        if (!entry.is_regular_file(error))
+        if (!entry.is_regular_file(error) && !entry.is_directory(error))
         {
             continue;
         }
@@ -228,7 +230,11 @@ std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, st
         auto relativePath = std::filesystem::relative(entry.path(), rootDir);
         if (MatchGlobPath(normalizedPattern, relativePath))
         {
-            matches.push_back(std::move(relativePath));
+            matches.push_back({
+                .name = std::move(relativePath),
+                .type = entry.status(error).type(),
+
+            });
         }
     }
 

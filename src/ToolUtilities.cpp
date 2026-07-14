@@ -96,6 +96,7 @@ std::optional<ToolCall> ParseToolCall(json const& toolCall)
     if (!functionName.empty())
     {
         return ToolCall{
+            .id        = {},
             .name      = std::move(functionName),
             .arguments = toolCall,
         };

@@ -21,7 +21,8 @@ void ValidatedFileSystem::AddRootPath(std::filesystem::path const& path)
 // Helper function to validate that a path is within the global root path.
 [[nodiscard]] std::filesystem::path ValidatedFileSystem::ValidatePath(std::filesystem::path const& path) const
 {
-    std::filesystem::path const absolutePath = std::filesystem::canonical(path.lexically_normal());
+    //std::filesystem::path const absolutePath = std::filesystem::canonical(path.lexically_normal());
+    std::filesystem::path const absolutePath = std::filesystem::absolute(path).lexically_normal();
 
     for (auto& root : m_rootPaths)
     {

@@ -19,4 +19,13 @@ void RawWriteTextFile(std::filesystem::path const& path, std::string_view conten
 
 std::filesystem::path GetExecutableDirectory();
 
-std::vector<std::filesystem::path> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern);
+struct GlobResult
+{
+    std::filesystem::path      name;
+    std::filesystem::file_type type;
+
+    friend auto operator== (GlobResult const& a, GlobResult const& b) noexcept { return std::tie(a.name, a.type) ==  std::tie(b.name, b.type); }
+    friend auto operator<=>(GlobResult const& a, GlobResult const& b) noexcept { return std::tie(a.name, a.type) <=> std::tie(b.name, b.type); }
+};
+
+std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern);

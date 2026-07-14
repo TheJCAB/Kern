@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(kern LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -39,7 +39,7 @@ add_executable(kern
     src/main.cpp
 )
 
-target_compile_features(kern PRIVATE cxx_std_20)
+target_compile_features(kern PRIVATE cxx_std_23)
 
 target_include_directories(kern PRIVATE src)
 
@@ -55,3 +55,5 @@ add_custom_target(copy_runtime_data ALL
 )
 
 add_dependencies(kern copy_runtime_data)
+
+add_subdirectory(tests)

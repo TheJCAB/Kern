@@ -89,24 +89,50 @@ json BuildPayloadToolDefinitions(std::span<ToolDefinition const> const tools)
     return result;
 }
 
+std::optional<ToolCall> ParseToolCall(json const& toolCall)
+{
+    // See if we got an old-school textual tool call.
+    auto functionName = toolCall.value<std::string>("tool", {});
+    if (!functionName.empty())
+    {
+        return ToolCall{
+            .name      = std::move(functionName),
+            .arguments = toolCall,
+        };
+    }
+
+    // Note: ollama doesn't include the "type".
+    if (toolCall.value<std::string>("type", "function") != "function" || !toolCall.contains("function"))
+    {
+        // Not a function.
+        return {};
+    }
+    auto& function = toolCall.at("function");
+    functionName   = function.value<std::string>("name", {});
+    if (functionName.empty())
+    {
+        return {};
+    }
+
+    json const& arguments = function.at("arguments");
+    json const argumentsObject = arguments.is_object()
+        ? arguments
+        : json::parse(arguments.get_ref<std::string const&>(), nullptr, 0);
+    return ToolCall{
+        .id        = toolCall.value<std::string>("id", {}),
+        .name      = std::move(functionName),
+        .arguments = argumentsObject,
+    };
+}
+
 std::vector<ToolCall> ParseToolCalls(json::array_t const& toolCalls)
 {
     std::vector<ToolCall> result;
-    for (auto& toolCall : toolCalls)
+    for (auto& jsonToolCall : toolCalls)
     {
-        if (toolCall.value<std::string>("type", {}) != "function")
+        if (auto toolCall = ParseToolCall(jsonToolCall))
         {
-            continue;
-        }
-        auto& function         = toolCall.at("function");
-        auto functionName      = function.value<std::string>("name", {});
-        if (!functionName.empty())
-        {
-            result.push_back({
-                .id        = toolCall.value<std::string>("id", {}),
-                .name      = std::move(functionName),
-                .arguments = json::parse(function.value<std::string>("arguments", {}), nullptr, 0),
-            });
+            result.push_back(std::move(*toolCall));
         }
     }
     return result;
@@ -135,11 +161,16 @@ std::string CallTool(std::string_view const name, json const& arguments, ToolsRu
 
 std::optional<std::string> ParseToolCall(std::string_view const text, ToolsRuntimeContext const& context, std::span<ToolDefinition const> const tools)
 {
-    json const toolCall = json::parse(text.begin(), text.end(), nullptr, false);
-    if (!toolCall.is_object())
+    json const jsonToolCall = json::parse(text.begin(), text.end(), nullptr, false);
+    if (!jsonToolCall.is_object())
     {
         return {};
     }
+    
+    if (auto toolCall = ParseToolCall(jsonToolCall))
+    {
+        return CallTool(toolCall->name, std::move(toolCall->arguments), context, tools);
+    }
 
-    return CallTool(toolCall.at("tool").get_ref<std::string const&>(), toolCall, context, tools);
+    return {};
 }

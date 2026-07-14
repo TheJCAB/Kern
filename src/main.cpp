@@ -51,7 +51,7 @@ struct ConversationMessage
     json::array_t toolCalls {};
 };
 
-json BuildPayload(std::span<ConversationMessage> const conversationHistory = {})
+json BuildPayload(std::span<ConversationMessage> const conversationHistory = {}, std::string_view const modelName = "gemma4")
 {
     json::array_t messages{};
 
@@ -76,8 +76,9 @@ json BuildPayload(std::span<ConversationMessage> const conversationHistory = {})
     }
 
     return json{
-        { "model", "gemma-4" },
+        { "model", modelName },
         { "messages", std::move(messages) },
+        { "stream", false },
         { "tools", BuildPayloadToolDefinitions(AllTools) },
         //{ "max_tokens", 1024 },
         //{ "temperature", 0.7 },
@@ -116,11 +117,48 @@ struct ModelResponse
     std::vector<ToolCall> toolCalls;
 };
 
-ModelResponse ExtractModelContent(json const& response)
+bool IsOllamaEndpoint(Endpoint const& endpoint)
+{
+    return endpoint.path.find("/api/chat") != std::string::npos || endpoint.path.find("/api/generate") != std::string::npos;
+}
+
+ModelResponse ExtractModelContent(json const& response, Endpoint const& endpoint)
 {
     ModelResponse result;
 
     if (!response.is_object()) throw std::runtime_error("malformed response: not a JSON object");
+
+    if (IsOllamaEndpoint(endpoint))
+    {
+        auto const& message = response.value("message", json::object());
+        if (!message.is_object()) throw std::runtime_error("malformed response: missing message");
+
+        result.content = message.value<std::string>("content", {});
+
+        if (response.value("done", false))
+        {
+            auto const doneReason = response.value("done_reason", std::string{"stop"});
+            if      (doneReason == "stop"      ) result.reason = ResponseFinishReason::stop;
+            else if (doneReason == "length"   ) result.reason = ResponseFinishReason::length;
+            else if (doneReason == "tool_calls") result.reason = ResponseFinishReason::tool_calls;
+            else result.reason = ResponseFinishReason::stop;
+        }
+        else
+        {
+            result.reason = ResponseFinishReason::length;
+        }
+
+        if (auto const toolCalls = message.value<json::array_t>("tool_calls", {}); !toolCalls.empty())
+        {
+            result.toolCalls = ParseToolCalls(toolCalls);
+            if (result.reason == ResponseFinishReason::stop)
+            {
+                result.reason = ResponseFinishReason::tool_calls;
+            }
+        }
+
+        return result;
+    }
 
     json const& choices = response.at("choices");
     if (!choices.is_array() || choices.empty()) throw std::runtime_error("malformed response: missing choices");
@@ -146,7 +184,7 @@ ModelResponse ExtractModelContent(json const& response)
     if (!message.is_object() || message.empty()) throw std::runtime_error("malformed response: missing message");
 
     result.content   = message.value<std::string>("content"          , {});
-    result.reasoning = message.value<std::string>("reasoning_content", {});
+    result.reasoning = message.value<std::string>("reasoning_content", message.value<std::string>("thinking", {}));
     result.toolCalls = ParseToolCalls(message.value<json::array_t>("tool_calls", {}));
 
     return result;
@@ -157,7 +195,7 @@ std::string HttpPost(Endpoint const& endpoint, json const& payload)
     return HttpPost(endpoint, "application/json", payload.dump());
 }
 
-std::string BuildToolResponseMessage(std::string_view const toolName, std::string_view const toolResult)
+std::string BuildToolResponseMessage(std::string_view const toolName, std::string_view const toolCallId, std::string_view const toolResult)
 {
     json response = {
         { "result", std::string(toolResult) },
@@ -166,6 +204,11 @@ std::string BuildToolResponseMessage(std::string_view const toolName, std::strin
     if (!toolName.empty())
     {
         response["tool"] = std::string(toolName);
+    }
+
+    if (!toolCallId.empty())
+    {
+        response["tool_call_id"] = std::string(toolCallId);
     }
 
     return response.dump();
@@ -230,9 +273,10 @@ void WriteLogFile(Log& log, std::string_view const name, std::string_view const 
 class ChatSession
 {
 public:
-    ChatSession(Endpoint endpointDescriptor, ToolsRuntimeContext toolContext, std::string systemPrompt)
+    ChatSession(Endpoint endpointDescriptor, ToolsRuntimeContext toolContext, std::string systemPrompt, std::string modelName)
         : m_endpointDescriptor{ endpointDescriptor     }
         , m_toolContext       { std::move(toolContext) }
+        , m_modelName         { std::move(modelName) }
     {
         m_conversationHistory.push_back({ .role = "system", .content = std::move(systemPrompt) });
 
@@ -253,15 +297,16 @@ public:
             std::cout << std::endl << "===============================\nTurn " << turn << std::endl << std::endl;
             try
             {
-                json const payload = BuildPayload(m_conversationHistory);
+                json const payload = BuildPayload(m_conversationHistory, m_modelName);
                 WriteLogFile(m_log, "request", payload.dump(2));
 
                 std::string const responseBody = HttpPost(m_endpointDescriptor, payload);
+                std::cout << "Response: " << responseBody << std::endl;
 
                 json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
                 WriteLogFile(m_log, "response", response.dump(2));
 
-                auto modelResponse = ExtractModelContent(response);
+                auto modelResponse = ExtractModelContent(response, m_endpointDescriptor);
 
                 // Show the reasoning stream from the model.
                 if (!modelResponse.reasoning.empty())
@@ -311,33 +356,57 @@ public:
                         throw std::runtime_error("The model said it was calling tools, but we didn't find any tool to call");
                     }
 
-                    ConversationMessage assistantMessage{
-                        .role      = "assistant",
-                        .content   = std::move(modelResponse.content),
-                        .toolCalls = json::array(),
-                    };
-                    for (auto const& toolCall : modelResponse.toolCalls)
+                    if (!IsOllamaEndpoint(m_endpointDescriptor))
                     {
-                        assistantMessage.toolCalls.push_back({
-                            { "type", "function" },
-                            { "function", {
-                                { "name"     , toolCall.name             },
-                                { "arguments", toolCall.arguments.dump() },
-                            }},
-                            { "id", toolCall.id },
-                        });
+                        ConversationMessage assistantMessage{
+                            .role      = "assistant",
+                            .content   = std::move(modelResponse.content),
+                            .toolCalls = json::array(),
+                        };
+                        for (auto const& toolCall : modelResponse.toolCalls)
+                        {
+                            assistantMessage.toolCalls.push_back({
+                                { "type", "function" },
+                                { "function", {
+                                    { "name"     , toolCall.name             },
+                                    { "arguments", toolCall.arguments.dump() },
+                                }},
+                                { "id", toolCall.id },
+                            });
+                        }
+                        m_conversationHistory.push_back(std::move(assistantMessage));
                     }
-                    m_conversationHistory.push_back(std::move(assistantMessage));
 
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, AllTools);
                         std::cout << "tool> " << toolCall.name << '(' << Utf8ToSystemEncoding(OneLine(toolCall.arguments.dump(), 20)) << ") -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
-                        m_conversationHistory.push_back({
-                            .role       = "tool",
-                            .content    = BuildToolResponseMessage(toolCall.name, toolResult),
-                            .toolCallId = toolCall.id,
-                        });
+                        if (IsOllamaEndpoint(m_endpointDescriptor))
+                        {
+                            m_conversationHistory.push_back({
+                                .role      = "assistant",
+                                .content   = json{
+                                    { "type", "function" },
+                                    { "function", {
+                                        { "name"     , toolCall.name             },
+                                        { "arguments", toolCall.arguments.dump() },
+                                    }},
+                                    { "id", toolCall.id },
+                                }.dump(),
+                            });
+                            m_conversationHistory.push_back({
+                                .role       = "user",
+                                .content    = BuildToolResponseMessage(toolCall.name, toolCall.id, toolResult),
+                            });
+                        }
+                        else
+                        {
+                            m_conversationHistory.push_back({
+                                .role       = "tool",
+                                .content    = BuildToolResponseMessage(toolCall.name, toolCall.id, toolResult),
+                                .toolCallId = toolCall.id,
+                            });
+                        }
                     }
                 }
                 else
@@ -358,49 +427,87 @@ public:
 
 private:
     Endpoint                         m_endpointDescriptor;
-    ToolsRuntimeContext                      m_toolContext;
+    ToolsRuntimeContext              m_toolContext;
+    std::string                      m_modelName;
     std::vector<ConversationMessage> m_conversationHistory;
     Log                              m_log;
 };
 
+Endpoint const ollamaEndpoint  { .host = "127.0.0.1", .port = "11434", .path = "/api/chat" };
+Endpoint const llamacppEndpoint{ .host = "127.0.0.1", .port =  "8080", .path = "/v1/chat/completions" };
+
 int main(int argc, char** argv)
 {
+    // Copilot-free added this.
+    // Not sure it's the right thing to do to change the encoding of the console.
+    // Don't know if the change would be permanent.
+    // It also added conversion functions to convert encodings as needed, anyway.
     //ConfigureConsoleForUtf8();
 
-    std::string endpoint = "http://127.0.0.1:8080/v1/chat/completions";
+    Endpoint endpoint = llamacppEndpoint;
+    std::string model = "gemma4";
     std::string prompt;
     int max_turns = 10;
 
-    for (int i = 1; i < argc; ++i)
+    try
     {
-        std::string const arg = argv[i];
-        if (arg == "--endpoint" && i + 1 < argc)
+        for (int i = 1; i < argc; ++i)
         {
-            endpoint = argv[++i];
+            std::string const arg = argv[i];
+            if (arg == "--endpoint" && i + 1 < argc)
+            {
+                std::string_view const endpointName = argv[++i];
+                if (endpointName == "ollama")
+                {
+                    endpoint = ollamaEndpoint;
+                }
+                else if (endpointName == "llama.cpp")
+                {
+                    endpoint = llamacppEndpoint;
+                }
+                else
+                {
+                    endpoint = ParseEndpoint(endpointName);
+                }
+            }
+            else if (arg == "--port" && i + 1 < argc)
+            {
+                endpoint.port = std::to_string(std::stoi(argv[++i]));
+            }
+            else if (arg == "--max-turns" && i + 1 < argc)
+            {
+                max_turns = std::stoi(argv[++i]);
+            }
+            else if (arg == "--model" && i + 1 < argc)
+            {
+                model = argv[++i];
+            }
+            else if (prompt.empty())
+            {
+                prompt = arg;
+            }
+            else
+            {
+                prompt += " ";
+                prompt += arg;
+            }
         }
-        else if (arg == "--max-turns" && i + 1 < argc)
-        {
-            max_turns = std::stoi(argv[++i]);
-        }
-        else if (prompt.empty())
-        {
-            prompt = arg;
-        }
-        else
-        {
-            prompt += " ";
-            prompt += arg;
-        }
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << "Couldn't parse one or more parameters: " << e.what() << '\n';
+        exit(1);
     }
 
     if (prompt.empty())
     {
-        prompt = "Tell me about yourself.";
+        std::cerr << "Required prompt is missing\n";
+        exit(1);
     }
 
     ToolsRuntimeContext toolContext{ .fs{ std::filesystem::current_path() } };
 
-    ChatSession session{ ParseEndpoint(endpoint), toolContext, RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt") };
+    ChatSession session{ endpoint, toolContext, RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt"), model };
 
     session.Prompt(prompt, max_turns);
 

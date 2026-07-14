@@ -40,9 +40,9 @@ public:
     std::string Receive(std::string_view description = {});
 
 #if _WIN32
-    explicit operator bool() { return m_sock != INVALID_SOCKET; }
+    explicit operator bool() const noexcept { return m_sock != INVALID_SOCKET; }
 #else
-    explicit operator bool() { return m_sock >= 0; }
+    explicit operator bool() const noexcept { return m_sock >= 0; }
 #endif
 
 private:

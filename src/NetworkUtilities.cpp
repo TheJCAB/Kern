@@ -106,7 +106,7 @@ Socket Socket::Connect(Endpoint const& endpoint)
 
     if (!result)
     {
-        throw std::runtime_error("unable to connect to the llama.cpp server");
+        throw std::runtime_error("unable to connect to the server");
     }
 
     return result;
@@ -191,10 +191,10 @@ std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadTyp
     sock.Send(request, "HTTP request");
 
     std::string response = sock.Receive("HTTP response");
-    
-    sock.Close();
 
-    //printf("Response:\n%s\n", response.c_str());
+    //printf("HTTP Response:\n%s\n", response.c_str());
+
+    bool const isChunked = response.find("\r\nTransfer-Encoding: chunked\r\n") != response.npos;
 
     std::size_t const header_end = response.find("\r\n\r\n");
     if (header_end == std::string::npos)
@@ -202,10 +202,48 @@ std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadTyp
         throw std::runtime_error("malformed HTTP response");
     }
 
-    std::string const body = response.substr(header_end + 4);
+    std::string body;
+    std::size_t pos = header_end + 4;
+    for (;;)
+    {
+        std::size_t chunkSize = response.size() - pos;
+        if (isChunked)
+        {
+            auto const sizeEnd = response.find("\r\n", pos);
+            if (sizeEnd == response.npos)
+            {
+                printf("HTTP Response:\n%s\n", response.c_str());
+                throw std::runtime_error("chunk error at position: " + std::to_string(pos));
+            }
+            chunkSize = std::stoul(response.substr(pos, sizeEnd - pos), nullptr, 16);
+            pos = sizeEnd + 2;
+            if (chunkSize == 0)
+            {
+                break;
+            }
+        }
+        body += response.substr(pos, chunkSize);
+        pos  += chunkSize + 2; // Skip the CRLF after the chunk.
+        if (!isChunked)
+        {
+            break;
+        }
+        if (pos == response.size())
+        {
+            response = sock.Receive("HTTP response");
+            pos      = 0;
+            if (response.empty())
+            {
+                // The response got interrupted. Return what we got so far.
+                break;
+            }
+        }
+    }
+
     std::string const status_line = response.substr(0, response.find('\r'));
     if (status_line.find("200") == std::string::npos)
     {
+        printf("HTTP Response:\n%s\n", response.c_str());
         throw std::runtime_error("server returned: " + status_line);
     }
     return body;

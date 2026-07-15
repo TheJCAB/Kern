@@ -1,7 +1,5 @@
 #include "FileValidation.h"
 
-import std;
-
 ValidatedFileSystem::ValidatedFileSystem(std::initializer_list<std::filesystem::path> const paths)
 {
     for (auto& path : paths)

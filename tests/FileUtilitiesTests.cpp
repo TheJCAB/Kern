@@ -2,6 +2,7 @@
 
 #include "TestUtilities.h"
 
+#include <algorithm>
 #include <iostream>
 #include <ranges>
 #include <stdexcept>

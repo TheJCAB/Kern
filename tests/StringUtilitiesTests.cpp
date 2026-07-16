@@ -8,14 +8,6 @@
 
 int main()
 {
-    std::cout << "Test Utf8ToSystemEncoding and SystemEncodingToUtf8\n";
-    // Since we don't know the exact system encoding, we'll just check that it handles a basic string.
-    std::string input = "Hello World";
-    std::string utf8  = Utf8ToSystemEncoding(input);
-    std::string back  = SystemEncodingToUtf8(utf8);
-    // They might not be identical if the system encoding is different, but for many it will be.
-    // For the sake of a unit test, let's skip strict equality here if it's environment dependent.
-
     std::cout << "Test EscapeString and UnescapeString\n";
     std::string original  = "Hello \"World\"! \n New line.";
     std::string escaped   = EscapeString(original);

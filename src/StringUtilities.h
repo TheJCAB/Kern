@@ -1,16 +1,14 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
-// Configure the console to emit UTF-8 text when running on Windows.
+// Configure the console to admit and emit UTF-8 text.
+// No-op on Linux, actively configures the console on Windows.
+// Optimistically registers atexit to undo the console change.
+// (A bona-fide crash will fail to run the atexit handler)
 void ConfigureConsoleForUtf8();
-
-// Convert a UTF-8 string to the active system/console encoding.
-std::string Utf8ToSystemEncoding(std::string_view input);
-
-// Convert a string from the active system/console encoding to UTF-8.
-std::string SystemEncodingToUtf8(std::string_view input);
 
 // Escape special characters and quotes to allow any arbitrary string to be quotable.
 std::string EscapeString(std::string_view const& input);

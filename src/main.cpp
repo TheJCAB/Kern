@@ -177,7 +177,7 @@ ModelResponse ExtractModelContent(json const& response, Endpoint const& endpoint
 
     if (result.reason != ResponseFinishReason::stop && result.reason != ResponseFinishReason::tool_calls)
     {
-        std::cout << "Response:\n" << Utf8ToSystemEncoding(response.dump(2)) << std::endl << std::endl;
+        std::cout << "Response:\n" << response.dump(2) << std::endl << std::endl;
     }
 
     json const& message = choice.at("message");
@@ -311,7 +311,7 @@ public:
                 // Show the reasoning stream from the model.
                 if (!modelResponse.reasoning.empty())
                 {
-                    std::cout << "reasoning> " << Utf8ToSystemEncoding(modelResponse.reasoning) << std::endl << std::endl;
+                    std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
                 }
 
                 if (!modelResponse.content.empty())
@@ -322,7 +322,7 @@ public:
                     {
                         auto& toolResult = toolResponse.value();
 
-                        std::cout << "tool> " << Utf8ToSystemEncoding(OneLine(modelResponse.content, 20)) << " -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
+                        std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
 
                         m_conversationHistory.push_back({
                             .role    = "user",
@@ -336,7 +336,7 @@ public:
                     }
                     else
                     {
-                        std::cout << "assistant> " << Utf8ToSystemEncoding(modelResponse.content) << std::endl << std::endl;
+                        std::cout << "assistant> " << modelResponse.content << std::endl << std::endl;
                     }
                 }
 
@@ -380,7 +380,7 @@ public:
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, AllTools);
-                        std::cout << "tool> " << toolCall.name << '(' << Utf8ToSystemEncoding(OneLine(toolCall.arguments.dump(), 20)) << ") -> " << Utf8ToSystemEncoding(OneLine(toolResult, 20)) << std::endl << std::endl;
+                        std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
                         if (IsOllamaEndpoint(m_endpointDescriptor))
                         {
                             m_conversationHistory.push_back({
@@ -411,13 +411,13 @@ public:
                 }
                 else
                 {
-                    std::cerr << "TODO: stop reason " << Utf8ToSystemEncoding(to_string(modelResponse.reason));
+                    std::cerr << "TODO: stop reason " << to_string(modelResponse.reason);
                     throw std::runtime_error(std::string("TODO: stop reason ") + to_string(modelResponse.reason));
                 }
             }
             catch (std::exception const& error)
             {
-                std::cerr << "agent error: " << Utf8ToSystemEncoding(error.what()) << std::endl;
+                std::cerr << "agent error: " << error.what() << std::endl;
                 throw;
             }
         }
@@ -438,11 +438,7 @@ Endpoint const llamacppEndpoint{ .host = "127.0.0.1", .port =  "8080", .path = "
 
 int main(int argc, char** argv)
 {
-    // Copilot-free added this.
-    // Not sure it's the right thing to do to change the encoding of the console.
-    // Don't know if the change would be permanent.
-    // It also added conversion functions to convert encodings as needed, anyway.
-    //ConfigureConsoleForUtf8();
+    ConfigureConsoleForUtf8();
 
     Endpoint endpoint = llamacppEndpoint;
     std::string model = "gemma4";

@@ -23,3 +23,14 @@ target_include_directories(file_utils_tests PRIVATE ../src)
 target_link_libraries(file_utils_tests PRIVATE TestUtilities)
 
 add_test(NAME file_utils_tests COMMAND file_utils_tests)
+
+add_executable(file_validation_tests
+    FileValidationTests.cpp
+    ../src/FileUtilities.cpp
+    ../src/FileValidation.cpp
+)
+
+target_include_directories(file_validation_tests PRIVATE ../src)
+target_link_libraries(file_validation_tests PRIVATE TestUtilities)
+
+add_test(NAME file_validation_tests COMMAND file_validation_tests)

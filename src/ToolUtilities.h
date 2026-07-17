@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -36,9 +37,15 @@ using ToolParameter = std::variant<
     StringToolParameter,
     IntegerToolParameter>;
 
+class Session;
+struct ToolDefinition;
+
+using CreateNewSessionFunction = Session(std::string_view systemPrompt, std::span<ToolDefinition const>);
+
 struct ToolsRuntimeContext
 {
-    ValidatedFileSystem fs;
+    std::function<CreateNewSessionFunction> createNewSession;
+    ValidatedFileSystem                     fs;
 };
 
 // At runtime, running a tool is done by calling a function with this signature.

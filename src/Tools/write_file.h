@@ -28,7 +28,8 @@ inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& cont
 constexpr ToolParameter WriteFileToolParameters[] =
 {
     StringToolParameter{ { "path"   , "The path to the file to write"    } },
-    StringToolParameter{ { "content", "The content to write to the file" } },
+    StringToolParameter{ { "content", "The content to write to the file. "
+                                      "**Note: Provide the content as it should appear in the final file; do not double-escape backslashes or quotes" } },
 };
 
 constexpr ToolDefinition write_file

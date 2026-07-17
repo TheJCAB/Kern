@@ -179,7 +179,8 @@ constexpr ToolParameter EditFileLinesToolParameters[] =
 constexpr ToolParameter EditFileLinesToolOptionalParameters[] =
 {
     IntegerToolParameter{ { "end_line", "The last line to affect"                          }, 1 },
-    StringToolParameter { { "content", "The replacement content to insert or replace with" } },
+    StringToolParameter { { "content" , "The replacement content to insert or replace with. "
+                                        "**Note: Provide the content as it should appear in the final file; do not double-escape backslashes or quotes" } },
 };
 
 constexpr ToolDefinition edit_file_lines

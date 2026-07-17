@@ -32,6 +32,8 @@ add_executable(kern
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
 
+    src/Session.cpp         src/Session.h
+
     src/Tools/edit_file_lines.h
     src/Tools/glob.h
     src/Tools/grep.h

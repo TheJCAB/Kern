@@ -3,13 +3,26 @@
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
 
-inline std::string WriteFileTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& context) noexcept
 {
-    auto& path    = arguments.at("path"   ).get_ref<std::string const&>();
-    auto& content = arguments.at("content").get_ref<std::string const&>();
+    auto const path    = arguments.value("path"   , "");
+    auto const content = arguments.value("content", "");
 
-    context.fs.WriteTextFile(path, content);
-    return "[write_file] ok";
+    json response{
+        { "path", path },
+    };
+
+    try
+    {
+        context.fs.WriteTextFile(path, content);
+        response["success"] = true;
+    }
+    catch(const std::exception& e)
+    {
+        response["error"] = e.what();
+    }
+
+    return response;
 }
 
 constexpr ToolParameter WriteFileToolParameters[] =
@@ -21,7 +34,7 @@ constexpr ToolParameter WriteFileToolParameters[] =
 constexpr ToolDefinition write_file
 {
     .name               = "write_file",
-    .description        = "Write content to a file",
+    .description        = "Write text content to a file",
     .requiredParameters = WriteFileToolParameters,
     .callTool           = WriteFileTool,
 };

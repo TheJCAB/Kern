@@ -11,8 +11,10 @@ struct FileChunk
 {
     int64_t                  startLine = 1;
     std::vector<std::string> lines;
+    bool                     eof;
 };
 
+// TODO: Implement this as streaming via std::generator.
 FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t startLine, int64_t endLine);
 
 void RawWriteTextFile(std::filesystem::path const& path, std::string_view content);

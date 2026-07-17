@@ -144,19 +144,18 @@ std::string CallTool(std::string_view const name, json const& arguments, ToolsRu
     auto const it = std::ranges::find_if(tools, [&](auto& toolDef){ return toolDef.name == name; });
     if (it == tools.end())
     {
-        return "[tool] unknown tool";
+        return R"({"error":"unknown tool"})";
     }
 
     auto& toolDef = *it;
 
     try
     {
-        return toolDef.callTool(arguments, context);
+        return toolDef.callTool(arguments, context).dump();
     }
     catch (std::exception const e)
     {
-        std::cerr << '[' << toolDef.name << "] " << e.what() << '\n';
-        throw;
+        return json{ { "error", e.what() } }.dump();
     }
 }
 

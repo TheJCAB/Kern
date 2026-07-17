@@ -3,10 +3,24 @@
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
 
-inline std::string ReadFileTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json ReadFileTool(json const& arguments, ToolsRuntimeContext const& context)
 {
-    auto& path = arguments.at("path").get_ref<std::string const&>();
-    return context.fs.ReadTextFile(path);
+    auto const path = arguments.value("path", "");
+
+    json response{
+        { "path", path },
+    };
+    
+    try
+    {
+        response["contents"] = context.fs.ReadTextFile(path);
+    }
+    catch(const std::exception& e)
+    {
+        response["error"] = e.what();
+    }
+
+    return response;
 }
 
 constexpr ToolParameter ReadFileToolParameters[] =

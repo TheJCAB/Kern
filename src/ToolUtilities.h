@@ -48,7 +48,7 @@ struct ToolsRuntimeContext
 //   This can either be data for the model
 //   or an error message if the parameters are found to be incorrect.
 // It may throw an exception if the tool fails even though the call was correctly formed.
-using ToolCallable = std::string(json const& arguments, ToolsRuntimeContext const&);
+using ToolCallable = json(json const& arguments, ToolsRuntimeContext const&);
 
 struct ToolDefinition
 {

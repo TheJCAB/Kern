@@ -41,13 +41,14 @@ FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t const 
         throw std::runtime_error{ "error: could not open file" };
     }
 
-    FileChunk result;
+    FileChunk result { .eof = false };
     int64_t lineNumber = 1;
     for (; lineNumber <= endLine; ++lineNumber)
     {
         std::string line;
         if (!std::getline(input, line))
         {
+            result.eof = true;
             break;
         }
 

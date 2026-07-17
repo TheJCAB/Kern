@@ -10,52 +10,53 @@
 #include <string_view>
 #include <vector>
 
-inline std::string GlobTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json GlobTool(json const& arguments, ToolsRuntimeContext const& context)
 {
-    std::string const& pattern = arguments.at("pattern").get_ref<std::string const&>();
+    std::string           const pattern = arguments.value("pattern" , "");
     std::filesystem::path const rootDir = arguments.value("root_dir", ".");
-
-    //std::filesystem::path const normalizedPattern = pattern.lexically_normal().lexically_proximate(rootDir.lexically_normal());
-    //if (normalizedPattern.empty() || *normalizedPattern.begin() == "..")
-    //{
-    //    throw std::runtime_error("error: malformed pattern");
-    //}
-
-    std::filesystem::path const searchRoot = context.fs.ValidatePath(rootDir);
-    if (!std::filesystem::exists(searchRoot))
-    {
-        throw std::runtime_error("error: root directory does not exist");
-    }
-
-    auto const matches = Glob(searchRoot, pattern);
 
     json response
     {
-        { "pattern", pattern },
+        { "pattern" , pattern },
         { "root_dir", rootDir },
-        { "matches", json::array() },
     };
 
-    auto& matchArray = response["matches"];
-    for (auto const& match : matches)
+    try
     {
-        matchArray.push_back({
-            { "path"  , match.name.generic_string() },
-            { "is_dir", match.type == std::filesystem::file_type::directory },
-        });
+        std::filesystem::path const searchRoot = context.fs.ValidatePath(rootDir);
+        if (!std::filesystem::exists(searchRoot))
+        {
+            response["error"] = "root_dir is not a valid root directory";
+            return response;
+        }    
+
+        json::array_t matchArray;
+        for (auto const& match : Glob(searchRoot, pattern))
+        {
+            matchArray.push_back({
+                { "path"  , match.name.generic_string() },
+                { "is_dir", match.type == std::filesystem::file_type::directory },
+            });
+        }
+
+        response["matches"] = std::move(matchArray);
+    }
+    catch(const std::exception& e)
+    {
+        response["error"] = e.what();
     }
 
-    return response.dump();
+    return response;
 }
 
 constexpr ToolParameter GlobToolParameters[] =
 {
-    StringToolParameter{ "pattern", "The glob pattern to match, relative to root_dir. Supports only '*' (no '**' or '?')" },
+    StringToolParameter{ "pattern", "The glob pattern to match, relative to root_dir. Supports '*', '**' and '?'" },
 };
 
 constexpr ToolParameter GlobToolOptionalParameters[] =
 {
-    StringToolParameter{ "root_dir", "The directory to search from" },
+    StringToolParameter{ "root_dir", "The directory to search from, defaults to the workspace root" },
 };
 
 constexpr ToolDefinition glob

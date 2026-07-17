@@ -12,7 +12,7 @@
 
 inline std::string GlobTool(json const& arguments, ToolsRuntimeContext const& context)
 {
-    std::filesystem::path const pattern = arguments.at("pattern").get_ref<std::string const&>();
+    std::string const& pattern = arguments.at("pattern").get_ref<std::string const&>();
     std::filesystem::path const rootDir = arguments.value("root_dir", ".");
 
     //std::filesystem::path const normalizedPattern = pattern.lexically_normal().lexically_proximate(rootDir.lexically_normal());

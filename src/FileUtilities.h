@@ -17,6 +17,9 @@ FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t startL
 
 void RawWriteTextFile(std::filesystem::path const& path, std::string_view content);
 
+inline void RawWriteTextFile(std::filesystem::path const& path) { RawWriteTextFile(path, path.string()); }
+
+
 std::filesystem::path GetExecutableDirectory();
 
 struct GlobResult
@@ -28,4 +31,4 @@ struct GlobResult
     friend auto operator<=>(GlobResult const& a, GlobResult const& b) noexcept { return std::tie(a.name, a.type) <=> std::tie(b.name, b.type); }
 };
 
-std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern);
+std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::string_view pattern);

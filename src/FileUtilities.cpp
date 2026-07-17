@@ -9,6 +9,8 @@
 #include <exception>
 #include <fstream>
 #include <functional>
+#include <generator>
+#include <ranges>
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
@@ -143,7 +145,7 @@ bool MatchGlobSegment(std::filesystem::path::string_type const& pattern, std::fi
         }
     }
 
-    while (patternIndex < pattern.size() && pattern[patternIndex] == '*')
+    while (patternIndex < pattern.size() && pattern[patternIndex] == Char{'*'})
     {
         ++patternIndex;
     }
@@ -151,94 +153,117 @@ bool MatchGlobSegment(std::filesystem::path::string_type const& pattern, std::fi
     return patternIndex == pattern.size();
 }
 
-bool MatchGlobPath(std::filesystem::path const& pattern, std::filesystem::path const& text)
+// Utility function to generate path-native strings (using wchar_t on Windows and char on Linux).
+std::filesystem::path::string_type operator""_path(char const* string, size_t size)
 {
-    std::vector const patternSegments(pattern.begin(), pattern.end());
-    std::vector const textSegments   (text   .begin(), text   .end());
-
-    std::function<bool(std::size_t, std::size_t)> matchSegments = [&](std::size_t patternIndex, std::size_t textIndex) -> bool
-    {
-        if (patternIndex == patternSegments.size())
-        {
-            return textIndex == textSegments.size();
-        }
-
-        auto const& patternSegment = patternSegments[patternIndex];
-        if (patternSegment == "**")
-        {
-            if (patternIndex + 1 == patternSegments.size())
-            {
-                return true;
-            }
-            for (std::size_t i = textIndex; i <= textSegments.size(); ++i)
-            {
-                if (matchSegments(patternIndex + 1, i))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        if (textIndex >= textSegments.size())
-        {
-            return false;
-        }
-
-        if (!MatchGlobSegment(patternSegment, textSegments[textIndex]))
-        {
-            return false;
-        }
-
-        return matchSegments(patternIndex + 1, textIndex + 1);
-    };
-
-    return matchSegments(0, 0);
+    std::filesystem::path result{ string, string + size };
+    return result.native();
 }
 
-std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::filesystem::path const& pattern)
+// Recursive generator.
+std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::ranges::input_range auto const& pattern, bool recurseAll = false)
 {
-    std::filesystem::path const canonicalizedRootDir = std::filesystem::canonical(rootDir.lexically_normal());
-    std::filesystem::path normalizedPattern = pattern.lexically_normal().lexically_proximate(canonicalizedRootDir);
-    if (normalizedPattern.empty() || *normalizedPattern.begin() == "..")
+    std::error_code error;
+
+    auto segmentEndIt = std::ranges::end(pattern);
+
+    auto segmentIt     = std::ranges::begin(pattern);
+    
+    while (segmentIt != segmentEndIt && *segmentIt == "**"_path)
+    {
+        // Note: this is benign if we encounter redundant repetitions like "**/**"
+        recurseAll    = true;
+        segmentIt     = std::next(segmentIt);
+    }
+
+    if (segmentIt == segmentEndIt)
+    {
+        if (recurseAll)
+        {
+            // "**" as the end of the search implies a "/*"
+            std::filesystem::path::string_type const star = "*"_path;
+            co_yield std::ranges::elements_of(GlobInternal(rootDir, std::ranges::subrange{ &star, &star + 1 }, true));
+        }
+        co_return;
+    }
+
+    auto const nextSegmentIt = std::next(segmentIt);
+
+    auto const& segment = *segmentIt;
+    if (segment == ".."_path)
     {
         throw std::runtime_error("error: malformed pattern");
     }
 
-    // Special-case: for now this is implied.
-    // TODO: Implement more complete/comprehensive globbing.
-    if (*normalizedPattern.begin() == "**")
+    for (auto const& entry : std::filesystem::directory_iterator(rootDir, std::filesystem::directory_options::skip_permission_denied, error))
     {
-        normalizedPattern = normalizedPattern.lexically_relative("**");
-    }
-
-    std::vector<GlobResult> matches;
-
-    std::error_code error;
-    for (auto const& entry : std::filesystem::recursive_directory_iterator(rootDir, std::filesystem::directory_options::skip_permission_denied, error))
-    {
-        if (error)
+        auto const entryName = entry.path().filename();
+        if (MatchGlobSegment(segment, entryName))
         {
-            break;
+            if (nextSegmentIt == segmentEndIt)
+            {
+                // Found a leaf. File or directory, doesn't matter, it's a hit.
+                co_yield GlobResult{
+                    .name = rootDir / entryName,
+                    .type = entry.status(error).type(),
+                };
+            }
+            else if (entry.is_directory(error))
+            {
+                // Note: even if recurseAll is set, we've now matched a newer segment.
+                // So we must consider the recursion "spent" and not continue the recursion here.
+                co_yield std::ranges::elements_of(GlobInternal(rootDir / entryName, std::ranges::subrange{ nextSegmentIt, segmentEndIt }, false));
+            }
         }
 
-        if (!entry.is_regular_file(error) && !entry.is_directory(error))
+        if (recurseAll && entry.is_directory(error))
         {
-            continue;
-        }
-
-        auto relativePath = std::filesystem::relative(entry.path(), rootDir);
-        if (MatchGlobPath(normalizedPattern, relativePath))
-        {
-            matches.push_back({
-                .name = std::move(relativePath),
-                .type = entry.status(error).type(),
-
-            });
+            // recurseAll means we search in every subdirectory, whether it matched or not.
+            // Note: we swallow this directory into the recurseAll pattern and keep searching,
+            // which makes this recursion different from when we recursed a match above.
+            co_yield std::ranges::elements_of(GlobInternal(rootDir / entryName, std::ranges::subrange{ segmentIt, segmentEndIt }, true));
         }
     }
+}
 
-    std::sort(matches.begin(), matches.end());
+std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::string_view const pattern)
+{
+    std::filesystem::path normalizedRootDir = rootDir.lexically_normal();
+    if (!std::filesystem::exists(normalizedRootDir) || !std::filesystem::is_directory(normalizedRootDir))
+    {
+        return {};
+    }
 
-    return matches;
+    // TODO: Use char8_t for UTF-8 content consistently so we don't have to do this here.
+    std::u8string_view const utf8Pattern{ reinterpret_cast<char8_t const*>(pattern.data()), pattern.size() };
+    auto normalizedPattern = std::filesystem::path{ utf8Pattern, std::filesystem::path::format::generic_format }.lexically_normal();
+    if (normalizedPattern.has_root_name())
+    {
+        throw std::runtime_error("error: malformed pattern");
+    }
+    if (normalizedPattern.has_root_directory())
+    {
+        normalizedPattern = normalizedPattern.relative_path();
+    }
+    else
+    {
+        normalizedPattern = "**" / normalizedPattern;
+    }
+
+    std::vector<GlobResult> result;
+    for (GlobResult globResult : GlobInternal(normalizedRootDir, normalizedPattern))
+    {
+        globResult.name = globResult.name.lexically_relative(normalizedRootDir);
+        result.push_back(globResult);
+    }
+
+    // Sort and eliminate any duplicates.
+    // Duplicates can happen if we get multiple distinct "**" in the pattern.
+    std::ranges::sort(result);
+    {
+        auto const [ begin, end ] = std::ranges::unique(result);
+        result.erase(begin, end);
+    }
+
+    return result;
 }

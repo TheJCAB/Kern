@@ -89,7 +89,7 @@ Socket Socket::Connect(Endpoint const& endpoint)
 
     for (auto* current = info; current != nullptr; current = current->ai_next)
     {
-        printf("Trying to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
+        //printf("Trying to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
         result.m_sock = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
         if (!result)
         {

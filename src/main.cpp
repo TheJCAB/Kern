@@ -114,13 +114,27 @@ int main(int argc, char** argv)
         exit(1);
     }
 
+    std::string workspaceInstructions;
+    if (std::filesystem::is_regular_file("Kern.txt"))
+    {
+        workspaceInstructions += "\n";
+        workspaceInstructions += RawReadTextFile("Kern.txt");
+    }
+    if (std::filesystem::is_regular_file("Kern.md"))
+    {
+        workspaceInstructions += "\n";
+        workspaceInstructions += RawReadTextFile("Kern.md");
+    }
+
+    std::string const mainSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
+
     ToolsRuntimeContext toolContext{
         .createNewSession = [&](std::string_view systemPrompt, std::span<ToolDefinition const> tools)
         {
             return Session{Session::Config{
                 .endpointDescriptor = endpoint,
                 .toolContext        = toolContext,
-                .systemPrompt       { systemPrompt },
+                .systemPrompt       = std::string(systemPrompt) + workspaceInstructions,
                 .modelName          = model,
                 .tools              = tools,
             }};
@@ -131,7 +145,7 @@ int main(int argc, char** argv)
     Session session{Session::Config{
         .endpointDescriptor = endpoint,
         .toolContext        = toolContext,
-        .systemPrompt       = RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt"),
+        .systemPrompt       = mainSystemPrompt + workspaceInstructions,
         .modelName          = model,
         .tools              = MainTools,
     }};

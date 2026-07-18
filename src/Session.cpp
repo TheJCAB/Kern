@@ -288,7 +288,7 @@ struct Session::Pimpl
                 WriteLogFile(m_log, "request", payload.dump(2));
 
                 std::string const responseBody = HttpPost(m_endpointDescriptor, payload);
-                std::cout << "Response: " << responseBody << std::endl;
+                //std::cout << "Response: " << responseBody << std::endl;
 
                 json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
                 WriteLogFile(m_log, "response", response.dump(2));

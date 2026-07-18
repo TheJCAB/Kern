@@ -42,7 +42,7 @@ inline json SubagentTool(json const& arguments, ToolsRuntimeContext const& conte
 
     try
     {
-        Session session = context.createNewSession(RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt"), Tools);
+        Session session = context.createNewSession(RawReadTextFile(GetExecutableDirectory() / "data" / "SubagentPrompt.txt"), Tools);
 
         response["response"] = session.Prompt(prompt, 50);
     }
@@ -56,13 +56,15 @@ inline json SubagentTool(json const& arguments, ToolsRuntimeContext const& conte
 
 constexpr ToolParameter SubagentToolParameters[] =
 {
-    StringToolParameter{ "prompt", "The prompt to provide to the subagent. This should include all necessary instructions and context for the task." }
+    StringToolParameter{ "prompt", "The **user** prompt that you provide to the subagent. This MUST include all necessary instructions and context specific to the task." }
 };
 
 constexpr ToolDefinition subagent
 {
     .name               = "subagent",
-    .description        = "Delegate a task to a subagent. The subagent will perform the menial work and return the result.",
+    .description        = "Delegate an implementation task to a subagent. "
+                          "This subagent may perform reads and writes to files that you specifically mention. "
+                          "When the task is complete, the subagent will report the result.",
     .requiredParameters = SubagentToolParameters,
     .optionalParameters = {},
     .callTool           = SubagentTool

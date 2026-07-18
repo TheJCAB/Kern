@@ -7,26 +7,21 @@
 #include "glob.h"
 #include "grep.h"
 #include "read_file_chunk.h"
-#include "edit_file_lines.h"
-#include "write_file.h"
 
 #include <string>
 #include <string_view>
 
-namespace
+namespace Tools::research
 {
 
 constexpr ToolDefinition Tools[] =
 {
-    //read_file,
-    //glob,
-    //grep,
+    glob,
+    grep,
     read_file_chunk,
-    edit_file_lines,
-    write_file,
 };
 
-inline json SubagentTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context)
 {
     std::string const prompt = arguments.value("prompt", "");
     
@@ -42,7 +37,7 @@ inline json SubagentTool(json const& arguments, ToolsRuntimeContext const& conte
 
     try
     {
-        Session session = context.createNewSession(RawReadTextFile(GetExecutableDirectory() / "data" / "SubagentPrompt.txt"), Tools);
+        Session session = context.createNewSession(RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), Tools);
 
         response["response"] = session.Prompt(prompt, 50);
     }
@@ -54,19 +49,21 @@ inline json SubagentTool(json const& arguments, ToolsRuntimeContext const& conte
     return response;
 }
 
-constexpr ToolParameter SubagentToolParameters[] =
+constexpr ToolParameter RequiredParameters[] =
 {
     StringToolParameter{ "prompt", "The **user** prompt that you provide to the subagent. This MUST include all necessary instructions and context specific to the task." }
 };
 
-constexpr ToolDefinition subagent
+constexpr ToolDefinition Definition
 {
-    .name               = "subagent",
-    .description        = "Delegate an implementation task to a subagent. "
-                          "This subagent may perform reads and writes to files that you specifically mention. "
+    .name               = "research",
+    .description        = "Delegate a research task to a research subagent. "
+                          "This subagent may perform tasks like globbing, grepping, and reading files to gain knowledge about the workspace. "
                           "When the task is complete, the subagent will report the result.",
-    .requiredParameters = SubagentToolParameters,
+    .requiredParameters = RequiredParameters,
     .optionalParameters = {},
-    .callTool           = SubagentTool
+    .callTool           = ToolFunction
 };
+
 }
+// namespace Tools::research

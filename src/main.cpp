@@ -9,7 +9,8 @@
 #include "Tools/grep.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/read_file.h"
-#include "Tools/subagent.h"
+#include "Tools/research.h"
+#include "Tools/implement.h"
 #include "Tools/write_file.h"
 
 #include <nlohmann/json.hpp>
@@ -37,10 +38,8 @@ namespace
 
 constexpr ToolDefinition MainTools[] =
 {
-    //read_file,
-    glob,
-    grep,
-    subagent,
+    Tools::research::Definition,
+    Tools::implement::Definition,
     read_file_chunk,
 };
 
@@ -126,7 +125,7 @@ int main(int argc, char** argv)
         workspaceInstructions += RawReadTextFile("Kern.md");
     }
 
-    std::string const mainSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "SystemPrompt.txt");
+    std::string const mainSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt");
 
     ToolsRuntimeContext toolContext{
         .createNewSession = [&](std::string_view systemPrompt, std::span<ToolDefinition const> tools)

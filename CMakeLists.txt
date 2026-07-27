@@ -25,6 +25,8 @@ include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
 CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
 
+CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0)
+
 add_executable(kern
     src/FileUtilities.cpp       src/FileUtilities.h
     src/FileValidation.cpp      src/FileValidation.h
@@ -48,7 +50,7 @@ target_compile_features(kern PRIVATE cxx_std_23)
 
 target_include_directories(kern PRIVATE src)
 
-target_link_libraries(kern PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(kern PRIVATE nlohmann_json::nlohmann_json httplib::httplib)
 
 set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:kern>/data)
 

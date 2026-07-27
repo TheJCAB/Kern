@@ -108,21 +108,40 @@ std::optional<ToolCall> ParseToolCall(json const& toolCall)
         // Not a function.
         return {};
     }
-    auto& function = toolCall.at("function");
+    auto const function = GetOrDefault(toolCall, "function", json::object());
     functionName   = function.value<std::string>("name", {});
     if (functionName.empty())
     {
         return {};
     }
 
-    json const& arguments = function.at("arguments");
-    json const argumentsObject = arguments.is_object()
-        ? arguments
-        : json::parse(arguments.get_ref<std::string const&>(), nullptr, 0);
+    auto const argumentsIt = function.find("arguments");
+    json const argumentsObject =
+        argumentsIt == function.end() ? json::object() :
+        argumentsIt->is_object()      ? *argumentsIt :
+        argumentsIt->is_string()      ? json::parse(argumentsIt->get_ref<std::string const&>(), nullptr, 0) :
+                                        json::object();
     return ToolCall{
         .id        = toolCall.value<std::string>("id", {}),
         .name      = std::move(functionName),
         .arguments = argumentsObject,
+    };
+}
+
+std::optional<ToolCallDelta> ParseToolCallDelta(json const& toolCall)
+{
+    // Note: ollama doesn't include the "type".
+    if (GetOrDefault(toolCall, "type", "function") != "function")
+    {
+        // Not a function.
+        return {};
+    }
+    auto function = toolCall.value("function", json::object());
+    return ToolCallDelta{
+        .index     = GetOrDefault(toolCall, "index"    , size_t{}),
+        .id        = GetOrDefault(toolCall, "id"       , ""),
+        .name      = GetOrDefault(function, "name"     , ""),
+        .arguments = GetOrDefault(function, "arguments", ""),
     };
 }
 
@@ -132,6 +151,19 @@ std::vector<ToolCall> ParseToolCalls(json::array_t const& toolCalls)
     for (auto& jsonToolCall : toolCalls)
     {
         if (auto toolCall = ParseToolCall(jsonToolCall))
+        {
+            result.push_back(std::move(*toolCall));
+        }
+    }
+    return result;
+}
+
+std::vector<ToolCallDelta> ParseToolCallsDelta(json::array_t const& toolCalls)
+{
+    std::vector<ToolCallDelta> result;
+    for (auto& jsonToolCall : toolCalls)
+    {
+        if (auto toolCall = ParseToolCallDelta(jsonToolCall))
         {
             result.push_back(std::move(*toolCall));
         }

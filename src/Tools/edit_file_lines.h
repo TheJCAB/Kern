@@ -108,7 +108,7 @@ inline json EditFileLinesTool(json const& arguments, ToolsRuntimeContext const& 
             std::size_t const maxLine = lines.size() + (allowPastEnd ? 1 : 0);
             if (lineNumber > static_cast<int64_t>(maxLine))
             {
-                throw std::runtime_error("error: line number is out of range");
+                throw std::runtime_error(std::format("line number {} is too large beyond the end of the file", lineNumber));
             }
 
             return static_cast<std::size_t>(lineNumber - 1);

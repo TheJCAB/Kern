@@ -1,8 +1,7 @@
 #pragma once
 
 #include "FileValidation.h"
-
-#include <nlohmann/json.hpp>
+#include "JsonUtilities.h"
 
 #include <cstdint>
 #include <functional>
@@ -12,8 +11,6 @@
 #include <string_view>
 #include <variant>
 #include <vector>
-
-using json = nlohmann::json;
 
 
 
@@ -73,9 +70,19 @@ struct ToolCall
     json        arguments;
 };
 
+struct ToolCallDelta
+{
+    std::size_t index;
+    std::string id;
+    std::string name;
+    std::string arguments;
+};
+
 json BuildPayloadToolDefinitions(std::span<ToolDefinition const>);
 
 std::vector<ToolCall> ParseToolCalls(json::array_t const& toolCalls);
+
+std::vector<ToolCallDelta> ParseToolCallsDelta(json::array_t const& toolCalls);
 
 std::string CallTool(std::string_view const name, json const& arguments, ToolsRuntimeContext const&, std::span<ToolDefinition const>);
 

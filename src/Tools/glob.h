@@ -51,7 +51,9 @@ inline json GlobTool(json const& arguments, ToolsRuntimeContext const& context)
 
 constexpr ToolParameter GlobToolParameters[] =
 {
-    StringToolParameter{ "pattern", "The glob pattern to match, relative to root_dir. Supports '*', '**' and '?'" },
+    StringToolParameter{ "pattern", "The glob pattern of the files to search in, relative to root_dir. "
+                                    "Supports '*', '**' and '?'. "
+                                    "Start with '/' to force a match just at the root, not in subdirectories." },
 };
 
 constexpr ToolParameter GlobToolOptionalParameters[] =

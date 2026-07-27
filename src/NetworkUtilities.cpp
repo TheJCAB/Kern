@@ -4,18 +4,12 @@
 #include "FileUtilities.h"
 #include "StringUtilities.h"
 
-#if _WIN32
-#include <Ws2tcpip.h>
-#pragma comment(lib, "Ws2_32.lib")
-#else
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
+#include <httplib.h>
 
 #include <mutex>
+#include <print>
 #include <stdexcept>
+#include <utility>
 
 Endpoint ParseEndpoint(std::string_view const endpoint)
 {
@@ -45,206 +39,87 @@ Endpoint ParseEndpoint(std::string_view const endpoint)
     if (colon_pos != std::string::npos)
     {
         result.host = authority.substr(0, colon_pos);
-        result.port = authority.substr(colon_pos + 1);
+        result.port = static_cast<std::uint32_t>(std::stoul(std::string{authority.substr(colon_pos + 1)}));
     }
     else
     {
         result.host = authority;
-        result.port = "80";
+        result.port = 80;
     }
 
     return result;
 }
 
-Socket Socket::Connect(Endpoint const& endpoint)
+std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadType, std::string_view const payload, std::function<void(std::string_view)> const& sseCallback)
 {
-    Socket result;
+    httplib::Client cli(endpoint.host, static_cast<int>(endpoint.port));
 
-#if _WIN32
-    using addrinfo = ADDRINFOA;
-    #define gai_strerror gai_strerrorA
-
-    static WSADATA wsaData =
-        []()
+    std::string buffer;
+    std::string sseChunk;
+    auto res = cli.Post(endpoint.path, httplib::Headers{}, std::string{ payload }, std::string{ payloadType },
+        [&](char const *data, size_t len)
         {
-            WSADATA result;
-            if (WSAStartup(MAKEWORD(2, 2), &result) != 0)
+            buffer.append(data, len);
+
+            size_t pos = 0;
+
+            for (;;)
             {
-                throw std::runtime_error("WSAStartup failed.");
+                // Find next newline
+                size_t newline = buffer.find('\n', pos);
+                if (newline == std::string::npos)
+                {
+                    break; // incomplete line, wait for more chunks
+                }
+
+                auto line = std::string_view{ buffer.data() + pos, newline - pos };
+                pos = newline + 1;
+
+                // Trim CR
+                if (!line.empty() && line.back() == '\r')
+                {
+                    line = line.substr(0, line.size() - 1);
+                }
+
+                // Empty line = event boundary
+                if (line.empty())
+                {
+                    auto const donePos = sseChunk.find("[DONE]");
+                    if (donePos != sseChunk.npos && donePos <= 1)
+                    {
+                        sseChunk = {};
+                    }
+                    else if (!sseChunk.empty())
+                    {
+                        sseCallback(std::exchange(sseChunk, {}));
+                    }
+                    continue;
+                }
+
+                // Parse SSE fields
+                auto starts_with = [](std::string_view s, std::string_view prefix) { return s.compare(0, prefix.size(), prefix) == 0; };
+                if (starts_with(line, "data:"))
+                {
+                    sseChunk += line.substr(5);
+                    sseChunk += "\n";
+                }
+                // We ignore these:
+                //else if (starts_with(line, "event:"))
+                //else if (starts_with(line, "id:"))
             }
-            return result;
+
+            // Remove processed part
+            buffer.erase(0, pos);
+            return true; // continue streaming
         }
-        ();
-#endif
+    );
 
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* info = nullptr;
-    int const gai = getaddrinfo(endpoint.host.c_str(), endpoint.port.c_str(), &hints, &info);
-    if (gai != 0)
+    if (res)
     {
-        throw std::runtime_error(std::string("getaddrinfo failed: ") + gai_strerror(gai));
+        return res->body;
     }
-
-    for (auto* current = info; current != nullptr; current = current->ai_next)
+    else
     {
-        //printf("Trying to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
-        result.m_sock = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
-        if (!result)
-        {
-            continue;
-        }
-        if (connect(result.m_sock, current->ai_addr, static_cast<int>(current->ai_addrlen)) == 0)
-        {
-            break;
-        }
-        printf("Failed to connect to %s:%s\n", endpoint.host.c_str(), endpoint.port.c_str());
-        result = {};
+        return "HTTP error";
     }
-    freeaddrinfo(info);
-
-    if (!result)
-    {
-        throw std::runtime_error("unable to connect to the server");
-    }
-
-    return result;
-}
-
-Socket::~Socket()
-{
-    Close();
-}
-
-void Socket::Close() noexcept
-{
-    if (*this)
-    {
-#if _WIN32
-        closesocket(std::exchange(m_sock, INVALID_SOCKET));
-#else
-        close(std::exchange(m_sock, INVALID_SOCKET));
-#endif
-    }
-}
-
-Socket& Socket::operator=(Socket&& other) noexcept
-{
-    auto const sock = std::exchange(other.m_sock, INVALID_SOCKET);
-    Close();
-    m_sock = sock;
-    return *this;
-}
-
-void Socket::Send(std::string_view const data, std::string_view const description)
-{
-    if (!*this) throw std::runtime_error("socket is not connected");
-
-    if (send(m_sock, data.data(), static_cast<int>(data.size()), 0) < 0)
-    {
-        Close();
-        if (description.empty())
-        {
-            throw std::runtime_error("failed to send data over socket");
-        }
-        else
-        {
-            throw std::runtime_error("failed to send data over socket: " + std::string(description));
-        }
-    }
-}
-
-std::string Socket::Receive(std::string_view const /*description*/)
-{
-    if (!*this) throw std::runtime_error("socket is not connected");
-
-    std::string response;
-    char buffer[4096];
-    for (;;)
-    {
-        auto const received = recv(m_sock, buffer, sizeof(buffer), 0);
-        if (received <= 0)
-        {
-            break;
-        }
-        response.append(buffer, static_cast<std::size_t>(received));
-    }
-    return response;
-}
-
-std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadType, std::string_view const payload)
-{
-    auto sock = Socket::Connect(endpoint);
-
-    std::string request = RawReadTextFile(GetExecutableDirectory() / "data" / "HttpPostJsonTemplate.txt");
-    ReplaceNewlinesIn(request, "\r\n"); // HTTP 1.1 requires CRLF line endings.
-    ReplaceIn(request, "@@endpointPath@@", endpoint.path);
-    ReplaceIn(request, "@@endpointHost@@", endpoint.host);
-    ReplaceIn(request, "@@endpointPort@@", endpoint.port);
-    ReplaceIn(request, "@@contentType@@", payloadType);
-    ReplaceIn(request, "@@payloadSize@@", std::to_string(payload.size()));
-    ReplaceIn(request, "@@payload@@", payload);
-
-    //printf("Sending HTTP request:\n%s\n", request.c_str());
-
-    sock.Send(request, "HTTP request");
-
-    std::string response = sock.Receive("HTTP response");
-
-    //printf("HTTP Response:\n%s\n", response.c_str());
-
-    bool const isChunked = response.find("\r\nTransfer-Encoding: chunked\r\n") != response.npos;
-
-    std::size_t const header_end = response.find("\r\n\r\n");
-    if (header_end == std::string::npos)
-    {
-        throw std::runtime_error("malformed HTTP response");
-    }
-
-    std::string body;
-    std::size_t pos = header_end + 4;
-    for (;;)
-    {
-        std::size_t chunkSize = response.size() - pos;
-        if (isChunked)
-        {
-            auto const sizeEnd = response.find("\r\n", pos);
-            if (sizeEnd == response.npos)
-            {
-                printf("HTTP Response:\n%s\n", response.c_str());
-                throw std::runtime_error("chunk error at position: " + std::to_string(pos));
-            }
-            chunkSize = std::stoul(response.substr(pos, sizeEnd - pos), nullptr, 16);
-            pos = sizeEnd + 2;
-            if (chunkSize == 0)
-            {
-                break;
-            }
-        }
-        body += response.substr(pos, chunkSize);
-        pos  += chunkSize + 2; // Skip the CRLF after the chunk.
-        if (!isChunked)
-        {
-            break;
-        }
-        if (pos == response.size())
-        {
-            response = sock.Receive("HTTP response");
-            pos      = 0;
-            if (response.empty())
-            {
-                // The response got interrupted. Return what we got so far.
-                break;
-            }
-        }
-    }
-
-    std::string const status_line = response.substr(0, response.find('\r'));
-    if (status_line.find("200") == std::string::npos)
-    {
-        printf("HTTP Response:\n%s\n", response.c_str());
-        throw std::runtime_error("server returned: " + status_line);
-    }
-    return body;
 }

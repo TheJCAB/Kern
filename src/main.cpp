@@ -45,8 +45,8 @@ constexpr ToolDefinition MainTools[] =
 
 }
 
-Endpoint const ollamaEndpoint  { .host = "127.0.0.1", .port = "11434", .path = "/api/chat" };
-Endpoint const llamacppEndpoint{ .host = "127.0.0.1", .port =  "8080", .path = "/v1/chat/completions" };
+Endpoint const ollamaEndpoint  { .host = "127.0.0.1", .port = 11434, .path = "/api/chat" };
+Endpoint const llamacppEndpoint{ .host = "127.0.0.1", .port =  8080, .path = "/v1/chat/completions" };
 
 int main(int argc, char** argv)
 {
@@ -80,7 +80,7 @@ int main(int argc, char** argv)
             }
             else if (arg == "--port" && i + 1 < argc)
             {
-                endpoint.port = std::to_string(std::stoi(argv[++i]));
+                endpoint.port = static_cast<std::uint32_t>(std::stoul(argv[++i]));
             }
             else if (arg == "--max-turns" && i + 1 < argc)
             {

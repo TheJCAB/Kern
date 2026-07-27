@@ -1,6 +1,7 @@
 #pragma once
 
 #include <FileUtilities.h>
+#include <JsonUtilities.h>
 #include <StringUtilities.h>
 #include <ToolUtilities.h>
 
@@ -19,15 +20,27 @@ namespace
 
 json GrepTool(json const& arguments, ToolsRuntimeContext const& context)
 {
-    auto                  const pattern     = arguments.at("pattern"     ).get_ref<std::string const&>();
-    std::filesystem::path const rootDir     = arguments.at("root_dir"    ).get_ref<std::string const&>();
-    std::string           const globPattern = arguments.at("glob_pattern").get_ref<std::string const&>();
+    std::string           const pattern     = GetOrDefault(arguments, "pattern"     , "");
+    std::filesystem::path const rootDir     = GetOrDefault(arguments, "root_dir"    , ".");
+    std::string           const globPattern = GetOrDefault(arguments, "glob_pattern", "");
 
     json response = {
         { "pattern"     , pattern     },
         { "root_dir"    , rootDir     },
         { "glob_pattern", globPattern },
     };
+
+    if (pattern.empty())
+    {
+        response["error"] = "The file pattern is missing";
+        return response;
+    }
+
+    if (globPattern.empty())
+    {
+        response["error"] = "The glob pattern is missing";
+        return response;
+    }
 
     try
     {
@@ -67,16 +80,24 @@ json GrepTool(json const& arguments, ToolsRuntimeContext const& context)
                 }
                 if (std::regex_search(line, patternRegex))
                 {
+                    auto const truncatedLine = std::string_view{ line }.substr(0, std::min<size_t>(2048, line.size()));
                     lineArray.push_back(json{
                         { "line", lineNumber },
-                        { "text", line },
+                        { "text", truncatedLine },
                     });
+                    if (line.size() > truncatedLine.size())
+                    {
+                        lineArray.back()["line_truncated"] = true;
+                    }
                 }
             }
-            fileArray.push_back(json{
-                { "file" , globResult.name },
-                { "lines", std::move(lineArray) },
-            });
+            if (!lineArray.empty())
+            {
+                fileArray.push_back(json{
+                    { "file" , globResult.name },
+                    { "lines", std::move(lineArray) },
+                });
+            }
         }
 
         response["matches"] = std::move(fileArray);
@@ -94,7 +115,9 @@ json GrepTool(json const& arguments, ToolsRuntimeContext const& context)
 constexpr ToolParameter GrepToolParameters[] =
 {
     StringToolParameter{ "pattern"     , "The search string to look for in the file, using \"egrep\" format" },
-    StringToolParameter{ "glob_pattern", "The glob pattern of the files to search in, relative to root_dir. Supports '*', '**' and '?'" },
+    StringToolParameter{ "glob_pattern", "The glob pattern of the files to search in, relative to root_dir. "
+                                         "Supports '*', '**' and '?'. "
+                                         "Start with '/' to force a match just at the root, not insubdirectories." },
 };
 
 constexpr ToolParameter GrepToolOptionalParameters[] =

@@ -1,11 +1,12 @@
 #include "Session.h"
 
+#include <Windows.h>
+
 #include "FileUtilities.h"
+#include "JsonUtilities.h"
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
-
-#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -13,7 +14,9 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <optional>
+#include <print>
 #include <random>
 #include <span>
 #include <sstream>
@@ -23,11 +26,10 @@
 #include <type_traits>
 #include <vector>
 
-using json = nlohmann::json;
 
-std::string HttpPost(Endpoint const& endpoint, json const& payload)
+std::string HttpPost(Endpoint const& endpoint, json const& payload, std::function<void(std::string_view)> const& sseCallback)
 {
-    return HttpPost(endpoint, "application/json", payload.dump());
+    return HttpPost(endpoint, "application/json", payload.dump(), sseCallback);
 }
 
 struct Session::Pimpl
@@ -104,19 +106,19 @@ struct Session::Pimpl
         return json{
             { "model", m_modelName },
             { "messages", std::move(messages) },
-            { "stream", false },
+            { "stream", !IsOllamaEndpoint() },
             { "tools", BuildPayloadToolDefinitions(m_tools) },
             //{ "max_tokens", 1024 },
             //{ "temperature", 0.7 },
             //{ "top_p", 1.0 },
             //{ "n", 1 },
-            //{ "stream", false },
             //{ "stop", json::array({ "\n\n" }),
         };
     }
 
     enum class ResponseFinishReason
     {
+        notFinished   ,
         stop          ,
         length        ,
         tool_calls    ,
@@ -127,6 +129,7 @@ struct Session::Pimpl
     {
         switch (reason)
         {
+        case ResponseFinishReason::notFinished   : return "notFinished";
         case ResponseFinishReason::stop          : return "stop";
         case ResponseFinishReason::length        : return "length";
         case ResponseFinishReason::tool_calls    : return "tool_calls";
@@ -143,18 +146,64 @@ struct Session::Pimpl
         std::vector<ToolCall> toolCalls;
     };
 
-    static bool IsOllamaEndpoint(Endpoint const& endpoint)
+    struct ModelResponseDelta
     {
-        return endpoint.path.find("/api/chat") != std::string::npos || endpoint.path.find("/api/generate") != std::string::npos;
+        ResponseFinishReason       reason;
+        std::string                reasoning;
+        std::string                content;
+        std::vector<ToolCallDelta> toolCalls;
+    };
+
+    bool IsOllamaEndpoint()
+    {
+        return m_endpointDescriptor.path.find("/api/chat") != std::string::npos || m_endpointDescriptor.path.find("/api/generate") != std::string::npos;
     }
 
-    static ModelResponse ExtractModelContent(json const& response, Endpoint const& endpoint)
+    ModelResponseDelta ExtractModelContentDelta(json const& event)
+    {
+        ModelResponseDelta result;
+
+        if (!event.is_object()) throw std::runtime_error("response SSE event: not a JSON object");
+
+        if (!event.contains("choices")) throw std::runtime_error("malformed SSE event: missing choices");
+
+        json const& choices = event.at("choices");
+        if (!choices.is_array()) throw std::runtime_error("malformed SSE event choices: not an array");
+        if (choices.empty()) throw std::runtime_error("malformed SSE event choices: it's empty");
+
+        auto& choice = choices[0];
+
+        auto const finishReason = GetOrDefault(choice, "finish_reason", "notFinished");
+        if      (finishReason == "stop"          ) result.reason = ResponseFinishReason::stop;
+        else if (finishReason == "length"        ) result.reason = ResponseFinishReason::length;
+        else if (finishReason == "tool_calls"    ) result.reason = ResponseFinishReason::tool_calls;
+        else if (finishReason == "content_filter") result.reason = ResponseFinishReason::content_filter;
+        else if (finishReason == "notFinished"   ) result.reason = ResponseFinishReason::notFinished;
+        else
+        {
+            throw std::runtime_error(std::string("malformed SSE event: unknown finish_reason: ") + finishReason);
+        }
+
+        //if (result.reason != ResponseFinishReason::notFinished)
+        //{
+        //    std::cout << "Response SSE event:\n" << event.dump(2) << std::endl << std::endl;
+        //}
+
+        json const& delta = choice.at("delta");
+        result.content   = GetOrDefault(delta, "content"          , "");
+        result.reasoning = GetOrDefault(delta, "reasoning_content", GetOrDefault(delta, "thinking", ""));
+        result.toolCalls = ParseToolCallsDelta(GetOrDefault<json::array_t>(delta, "tool_calls", {}));
+
+        return result;
+    }
+
+    ModelResponse ExtractModelContent(json const& response)
     {
         ModelResponse result;
 
         if (!response.is_object()) throw std::runtime_error("malformed response: not a JSON object");
 
-        if (IsOllamaEndpoint(endpoint))
+        if (IsOllamaEndpoint())
         {
             auto const& message = response.value("message", json::object());
             if (!message.is_object()) throw std::runtime_error("malformed response: missing message");
@@ -270,28 +319,116 @@ struct Session::Pimpl
             return {};
         }
 
+        std::println("===============================\n[{}]\nPrompt: {}", m_log.id, prompt);
+
         m_conversationHistory.push_back({ .role{ "user" }, .content{ prompt } });
 
         for (int turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
         {
-            std::cout << std::endl << "===============================\nTurn " << turn << std::endl << std::endl;
+            std::println("===============================\nTurn {} [{}]", turn, m_log.id);
             try
             {
                 json const payload = BuildPayload();
                 WriteLogFile(m_log, "request", payload.dump(2));
 
-                std::string const responseBody = HttpPost(m_endpointDescriptor, payload);
-                //std::cout << "Response: " << responseBody << std::endl;
+                ModelResponse modelResponse;
+                if (IsOllamaEndpoint())
+                {
+                    std::string const responseBody = HttpPost(m_endpointDescriptor, payload, [](auto){});
+                    //std::cout << "Response: " << responseBody << std::endl;
 
-                json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
-                WriteLogFile(m_log, "response", response.dump(2));
+                    json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
+                    WriteLogFile(m_log, "response", response.dump(2));
 
-                auto modelResponse = ExtractModelContent(response, m_endpointDescriptor);
+                    modelResponse = ExtractModelContent(response);
+                }
+                else
+                {
+                    json response;
+
+                    std::map<std::size_t, ToolCallDelta> toolCalls;
+
+                    auto sseCallback =
+                        [&](std::string_view event)
+                        {
+                            OutputDebugString(std::format("Response SSE Event: {}\n", event).c_str());
+                            json jsonEvent = json::parse(event.begin(), event.end(), nullptr, false);
+                            auto modelResponseDelta = ExtractModelContentDelta(jsonEvent);
+                            if (!modelResponseDelta.reasoning.empty())
+                            {
+                                if (modelResponse.reasoning.empty())
+                                {
+                                    std::cout << "\nreasoning> ";
+                                }
+                                std::cout << modelResponseDelta.reasoning;
+                                modelResponse.reasoning += modelResponseDelta.reasoning;
+                            }
+                            if (!modelResponseDelta.content.empty())
+                            {
+                                if (modelResponse.content.empty())
+                                {
+                                    std::cout << "\nassistant> ";
+                                }
+                                std::cout << modelResponseDelta.content;
+                                modelResponse.content += modelResponseDelta.content;
+                            }
+                            if (modelResponseDelta.reason != ResponseFinishReason::notFinished)
+                            {
+                                modelResponse.reason = modelResponseDelta.reason;
+                            }
+                            for (auto&& toolCallDelta : modelResponseDelta.toolCalls)
+                            {
+                                auto& toolCall = toolCalls[toolCallDelta.index];
+                                toolCall.id        += toolCallDelta.id;
+                                toolCall.name      += toolCallDelta.name;
+                                toolCall.arguments += toolCallDelta.arguments;
+                            }
+                        };
+
+                    (void)HttpPost(m_endpointDescriptor, payload, sseCallback);
+
+                    if (!modelResponse.reasoning.empty())
+                    {
+                        std::cout << modelResponse.reasoning << std::endl << std::endl;
+                    }
+
+                    for (auto&& [index, call] : toolCalls)
+                    {
+                        std::print("Assembled tool call: {}({})\n", call.name, call.arguments);
+                        modelResponse.toolCalls.push_back(
+                            ToolCall{
+                                .id        = call.id,
+                                .name      = call.name,
+                                .arguments = json::parse(call.arguments.begin(), call.arguments.end(), nullptr, false),
+                            }
+                        );
+                    }
+
+                    json assembledResponse{
+                        { "reason"   , to_string(modelResponse.reason) },
+                        { "reasoning", modelResponse.reasoning         },
+                        { "content"  , modelResponse.content           },
+                    };
+
+                    json::array_t tool_calls;
+                    for (auto&& call : modelResponse.toolCalls)
+                    {
+                        tool_calls.push_back(json{
+                            { "id"       , call.id },
+                            { "name"     , call.name },
+                            { "arguments", call.arguments },
+                        });
+                    }
+
+                    assembledResponse["tool_calls"] = std::move(tool_calls);
+
+                    WriteLogFile(m_log, "response", assembledResponse.dump(2));
+                }
 
                 // Show the reasoning stream from the model.
-                if (!modelResponse.reasoning.empty())
+                if (!modelResponse.reasoning.empty() && IsOllamaEndpoint())
                 {
-                    std::cout << "reasoning> " << modelResponse.reasoning << std::endl << std::endl;
+                    std::cout << "\nreasoning> " << modelResponse.reasoning << std::endl << std::endl;
                 }
 
                 if (!modelResponse.content.empty())
@@ -314,9 +451,9 @@ struct Session::Pimpl
                         });
                         continue;
                     }
-                    else
+                    else if (IsOllamaEndpoint()) // Otherwise, we already did during streaming
                     {
-                        std::cout << "assistant> " << modelResponse.content << std::endl << std::endl;
+                        std::cout << "\nassistant> " << modelResponse.content << std::endl << std::endl;
                     }
                 }
 
@@ -332,11 +469,22 @@ struct Session::Pimpl
                 {
                     if (modelResponse.toolCalls.empty())
                     {
-                        std::cerr << "The model said it was calling tools, but we didn't find any tool to call" << std::endl;
-                        throw std::runtime_error("The model said it was calling tools, but we didn't find any tool to call");
+                        if (modelResponse.content.empty())
+                        {
+                            std::cerr << "The model said it was calling tools, but we didn't find any tool to call" << std::endl;
+                            throw std::runtime_error("The model said it was calling tools, but we didn't find any tool to call");
+                        }
+                        else
+                        {
+                            // Figure it's really a stop...?
+                            m_conversationHistory.push_back({
+                                .role      = "assistant",
+                                .content   = modelResponse.content,
+                            });
+                            return std::move(modelResponse.content);
+                        }
                     }
-
-                    if (!IsOllamaEndpoint(m_endpointDescriptor))
+                    if (!IsOllamaEndpoint())
                     {
                         ConversationMessage assistantMessage{
                             .role      = "assistant",
@@ -359,21 +507,22 @@ struct Session::Pimpl
 
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
+                        std::print("\ntool call [{}]> {}({})\n", toolCall.id, toolCall.name, OneLine(toolCall.arguments.dump(), 60));
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, m_tools);
-                        std::cout << "tool> " << toolCall.name << '(' << OneLine(toolCall.arguments.dump(), 20) << ") -> " << OneLine(toolResult, 20) << std::endl << std::endl;
-                        if (IsOllamaEndpoint(m_endpointDescriptor))
+                        std::print("\ntool result [{}]> {} -> {}\n", toolCall.id, toolCall.name, OneLine(toolResult, 60));
+                        if (IsOllamaEndpoint())
                         {
-                            m_conversationHistory.push_back({
-                                .role      = "assistant",
-                                .content   = json{
-                                    { "type", "function" },
-                                    { "function", {
-                                        { "name"     , toolCall.name             },
-                                        { "arguments", toolCall.arguments.dump() },
-                                    }},
-                                    { "id", toolCall.id },
-                                }.dump(),
-                            });
+                            //m_conversationHistory.push_back({
+                            //    .role      = "assistant",
+                            //    .content   = json{
+                            //        { "type", "function" },
+                            //        { "function", {
+                            //            { "name"     , toolCall.name             },
+                            //            { "arguments", toolCall.arguments.dump() },
+                            //        }},
+                            //        { "id", toolCall.id },
+                            //    }.dump(),
+                            //});
                             m_conversationHistory.push_back({
                                 .role       = "user",
                                 .content    = BuildToolResponseMessage(toolCall.name, toolCall.id, toolResult),

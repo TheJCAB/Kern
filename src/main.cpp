@@ -1,37 +1,22 @@
-
 #include "FileUtilities.h"
 #include "NetworkUtilities.h"
 #include "Session.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
-#include "Tools/edit_file_lines.h"
-#include "Tools/glob.h"
-#include "Tools/grep.h"
+
 #include "Tools/read_file_chunk.h"
-#include "Tools/read_file.h"
 #include "Tools/research.h"
 #include "Tools/implement.h"
-#include "Tools/write_file.h"
 
-#include <nlohmann/json.hpp>
-
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
-#include <optional>
-#include <random>
+#include <print>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <type_traits>
-#include <vector>
-
-using json = nlohmann::json;
 
 namespace
 {
@@ -55,16 +40,22 @@ int main(int argc, char** argv)
     Endpoint endpoint = llamacppEndpoint;
     std::string model = "gemma4";
     std::string prompt;
-    int max_turns = 50;
+    unsigned maxTurns = 50;
 
     try
     {
         for (int i = 1; i < argc; ++i)
         {
             std::string const arg = argv[i];
-            if (arg == "--endpoint" && i + 1 < argc)
+            if (arg == "--endpoint")
             {
-                std::string_view const endpointName = argv[++i];
+                ++i;
+                if (i >= argc)
+                {
+                    std::println("Missing argument for --endpoint");
+                    exit(1);
+                }
+                std::string_view const endpointName = argv[i];
                 if (endpointName == "ollama")
                 {
                     endpoint = ollamaEndpoint;
@@ -75,20 +66,59 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    endpoint = ParseEndpoint(endpointName);
+                    try
+                    {
+                        endpoint = ParseEndpoint(endpointName);
+                    }
+                    catch(const std::exception& e)
+                    {
+                        std::cerr << "Invalid --endpoint argument: " << endpointName << " (" << e.what() << ")\n";
+                        std::cerr << "  only 'ollama', 'llama.cpp' or a valid URL are allowed\n";
+                        exit(1);
+                    }
                 }
             }
-            else if (arg == "--port" && i + 1 < argc)
+            else if (arg == "--port")
             {
-                endpoint.port = static_cast<std::uint32_t>(std::stoul(argv[++i]));
+                ++i;
+                if (i >= argc)
+                {
+                    std::println("Missing argument for --port");
+                    exit(1);
+                }
+                auto const value = std::stoul(argv[i]);
+                if (value > 65535u)
+                {
+                    std::println("Invalid --port argument: {}", argv[i]);
+                    exit(1);
+                }
+                endpoint.port = static_cast<std::uint32_t>(value);
             }
-            else if (arg == "--max-turns" && i + 1 < argc)
+            else if (arg == "--max-turns")
             {
-                max_turns = std::stoi(argv[++i]);
+                ++i;
+                if (i >= argc)
+                {
+                    std::println("Missing argument for --max-turns");
+                    exit(1);
+                }
+                auto const value = std::stoul(argv[i]);
+                if (value == 0 || value > UINT_MAX)
+                {
+                    std::println("Invalid --max-turns argument: {}", argv[i]);
+                    exit(1);
+                }
+                maxTurns = static_cast<unsigned>(value);
             }
-            else if (arg == "--model" && i + 1 < argc)
+            else if (arg == "--model")
             {
-                model = argv[++i];
+                ++i;
+                if (i >= argc)
+                {
+                    std::println("Missing argument for --model");
+                    exit(1);
+                }
+                model = argv[i];
             }
             else if (prompt.empty())
             {
@@ -116,40 +146,54 @@ int main(int argc, char** argv)
     std::string workspaceInstructions;
     if (std::filesystem::is_regular_file("Kern.txt"))
     {
+        // Note: this will be appended to the system prompt,
+        // so we add a separator line unconditionally.
         workspaceInstructions += "\n";
         workspaceInstructions += RawReadTextFile("Kern.txt");
     }
     if (std::filesystem::is_regular_file("Kern.md"))
     {
+        // Note: this will be appended to the system prompt,
+        // so we add a separator line unconditionally.
         workspaceInstructions += "\n";
         workspaceInstructions += RawReadTextFile("Kern.md");
     }
 
-    std::string const mainSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt");
+    try
+    {
+        std::string const mainSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt");
 
-    ToolsRuntimeContext toolContext{
-        .createNewSession = [&](std::string_view systemPrompt, std::span<ToolDefinition const> tools)
-        {
-            return Session{Session::Config{
-                .endpointDescriptor = endpoint,
-                .toolContext        = toolContext,
-                .systemPrompt       = std::string(systemPrompt) + workspaceInstructions,
-                .modelName          = model,
-                .tools              = tools,
-            }};
-        },
-        .fs{ std::filesystem::current_path() }
-    };
+        ToolsRuntimeContext toolContext{
+            .createNewSession = [&](std::string_view systemPrompt, std::span<ToolDefinition const> tools)
+            {
+                return Session{Session::Config{
+                    .endpointDescriptor = endpoint,
+                    .toolContext        = toolContext,
+                    .systemPrompt       = std::string(systemPrompt) + workspaceInstructions,
+                    .modelName          = model,
+                    .tools              = tools,
+                }};
+            },
+            .fs{ std::filesystem::current_path() }
+        };
 
-    Session session{Session::Config{
-        .endpointDescriptor = endpoint,
-        .toolContext        = toolContext,
-        .systemPrompt       = mainSystemPrompt + workspaceInstructions,
-        .modelName          = model,
-        .tools              = MainTools,
-    }};
+        Session session{Session::Config{
+            .endpointDescriptor = endpoint,
+            .toolContext        = toolContext,
+            .systemPrompt       = mainSystemPrompt + workspaceInstructions,
+            .modelName          = model,
+            .tools              = MainTools,
+        }};
 
-    session.Prompt(prompt, max_turns);
+        // We don't need the prompt response here, as it's already output within the function.
+        // TODO: Make console output optional or configurable.
+        (void)session.Prompt(prompt, maxTurns);
 
-    return 0;
+        return 0;
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << "Fatal error: " << e.what() << '\n';
+        exit(1);
+    }
 }

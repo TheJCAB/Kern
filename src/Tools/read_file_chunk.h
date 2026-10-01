@@ -20,8 +20,12 @@ inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& 
     {
         { "path"      , path      },
         { "start_line", startLine },
-        { "end_line"  , endLine   },
     };
+
+    if (endLine != INT64_MAX)
+    {
+        response["end_line"] = endLine;
+    }
 
     if (startLine < 1)
     {
@@ -47,7 +51,8 @@ inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& 
         
         FileChunk chunk = context.fs.ReadTextFileChunk(path, startLine, cappedEndLine);
 
-        response["truncated"] = !chunk.eof && static_cast<int64_t>(chunk.lines.size()) < endLine - startLine + 1;
+        response["end_of_file"] = chunk.eof;
+        response["truncated"]   = !chunk.eof && static_cast<int64_t>(chunk.lines.size()) < endLine - startLine + 1;
 
         json::array_t lines;
 
@@ -85,8 +90,8 @@ constexpr ToolParameter ReadFileChunkToolOptionalParameters[] =
 constexpr ToolDefinition read_file_chunk
 {
     .name               = "read_file_chunk",
-    .description        = "Read any number of lines from a file between start_line and end_line. "
-                          "It is highly recommended to use a range of lines to avoids loading too-large files. "
+    .description        = "Read some number of lines from a file between start_line and end_line. "
+                          "It is highly recommended to use a range of lines to avoid loading too-large files. "
                           "The result may provide less lines than requested even if available, in which case it'll indicate it was \"truncated\"",
     .requiredParameters = ReadFileChunkToolRequiredParameters,
     .optionalParameters = ReadFileChunkToolOptionalParameters,

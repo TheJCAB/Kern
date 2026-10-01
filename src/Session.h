@@ -23,7 +23,7 @@ public:
     Session(Config);
     ~Session();
 
-    std::string Prompt(std::string_view prompt, int maxTurns);
+    std::string Prompt(std::string_view prompt, unsigned maxTurns);
     
 private:
     struct Pimpl;

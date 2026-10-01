@@ -33,6 +33,7 @@ add_executable(kern
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
+    src/XmlToolCallParser.cpp   src/XmlToolCallParser.h
 
     src/Session.cpp         src/Session.h
 

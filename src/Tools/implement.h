@@ -56,15 +56,20 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 
 constexpr ToolParameter RequiredParameters[] =
 {
-    StringToolParameter{ "prompt", "The **user** prompt that you provide to the implement. This MUST include all necessary instructions and context specific to the task." }
+    StringToolParameter{ "prompt", "The **user** prompt that you provide to the subagent. This MUST include all necessary instructions and context specific to the task." }
 };
 
 constexpr ToolDefinition Definition
 {
     .name               = "implement",
-    .description        = "Delegate an implementation task to an implement. "
-                          "This implement may perform reads and writes to files that you specifically mention. "
-                          "When the task is complete, the implement will report the result.",
+    .description        = "Delegate an implementation task. "
+                          "This tool may only perform reads and writes to files that you specifically mention. "
+                          "The task can be high level or more mechanical. "
+                          "For instance 'Refactor the body of the inner loop in function A of file F into its own function B', "
+                          "'Rename the A member of class B from file F to C, including references in files G, H and I', "
+                          "'Turn the global variable A into a parameter passed to all functions that need it transitively. Files: F, G, H', "
+                          "etc... "
+                          "When the task is complete, the tool will report the result.",
     .requiredParameters = RequiredParameters,
     .optionalParameters = {},
     .callTool           = ToolFunction

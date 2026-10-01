@@ -7,6 +7,7 @@
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
+#include "XmlToolCallParser.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -105,14 +106,13 @@ struct Session::Pimpl
 
         return json{
             { "model", m_modelName },
-            { "messages", std::move(messages) },
-            { "stream", !IsOllamaEndpoint() },
             { "tools", BuildPayloadToolDefinitions(m_tools) },
+            { "stream", !IsOllamaEndpoint() },
             //{ "max_tokens", 1024 },
             //{ "temperature", 0.7 },
             //{ "top_p", 1.0 },
             //{ "n", 1 },
-            //{ "stop", json::array({ "\n\n" }),
+            { "messages", std::move(messages) },
         };
     }
 
@@ -312,7 +312,7 @@ struct Session::Pimpl
         std::cout << "log id: " << m_log.id << std::endl;
     }
 
-    std::string Prompt(std::string_view prompt, int maxTurns)
+    std::string Prompt(std::string_view prompt, unsigned maxTurns)
     {
         if (prompt.empty())
         {
@@ -323,7 +323,7 @@ struct Session::Pimpl
 
         m_conversationHistory.push_back({ .role{ "user" }, .content{ prompt } });
 
-        for (int turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
+        for (unsigned turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
         {
             std::println("===============================\nTurn {} [{}]", turn, m_log.id);
             try
@@ -356,18 +356,23 @@ struct Session::Pimpl
                             auto modelResponseDelta = ExtractModelContentDelta(jsonEvent);
                             if (!modelResponseDelta.reasoning.empty())
                             {
-                                if (modelResponse.reasoning.empty())
+                                if (modelResponse.content.empty())
                                 {
-                                    std::cout << "\nreasoning> ";
+                                    if (modelResponse.reasoning.empty())
+                                    {
+                                        std::cout << "\nreasoning>\n\n  | ";
+                                    }
+                                    auto reasoning = modelResponseDelta.reasoning;
+                                    ReplaceNewlinesIn(reasoning, "\n  | ");
+                                    std::cout << reasoning;
                                 }
-                                std::cout << modelResponseDelta.reasoning;
                                 modelResponse.reasoning += modelResponseDelta.reasoning;
                             }
                             if (!modelResponseDelta.content.empty())
                             {
                                 if (modelResponse.content.empty())
                                 {
-                                    std::cout << "\nassistant> ";
+                                    std::cout << "\nassistant>\n\n";
                                 }
                                 std::cout << modelResponseDelta.content;
                                 modelResponse.content += modelResponseDelta.content;
@@ -387,10 +392,7 @@ struct Session::Pimpl
 
                     (void)HttpPost(m_endpointDescriptor, payload, sseCallback);
 
-                    if (!modelResponse.reasoning.empty())
-                    {
-                        std::cout << modelResponse.reasoning << std::endl << std::endl;
-                    }
+                    std::println();
 
                     for (auto&& [index, call] : toolCalls)
                     {
@@ -459,13 +461,26 @@ struct Session::Pimpl
 
                 if (modelResponse.reason == ResponseFinishReason::stop)
                 {
-                    m_conversationHistory.push_back({
-                        .role      = "assistant",
-                        .content   = modelResponse.content,
-                    });
-                    return std::move(modelResponse.content);
+                    if (modelResponse.content.empty() && modelResponse.toolCalls.empty())
+                    {
+                        modelResponse.toolCalls = ParseToolCallsXml(modelResponse.reasoning);
+                    }
+                    if (!modelResponse.toolCalls.empty())
+                    {
+                        modelResponse.reason = ResponseFinishReason::tool_calls;
+                        std::print("Found {} XML tools\n", modelResponse.toolCalls.size());
+                    }
+                    else
+                    {
+                        m_conversationHistory.push_back({
+                            .role      = "assistant",
+                            .content   = modelResponse.content,
+                        });
+                        return std::move(modelResponse.content);
+                    }
                 }
-                else if (modelResponse.reason == ResponseFinishReason::tool_calls)
+
+                if (modelResponse.reason == ResponseFinishReason::tool_calls)
                 {
                     if (modelResponse.toolCalls.empty())
                     {
@@ -568,7 +583,7 @@ Session::Session(Config config) : m_pimpl{ std::make_unique<Pimpl>(std::move(con
 
 Session::~Session() = default;
 
-std::string Session::Prompt(std::string_view prompt, int maxTurns)
+std::string Session::Prompt(std::string_view prompt, unsigned maxTurns)
 {
     return m_pimpl->Prompt(prompt, maxTurns);
 }

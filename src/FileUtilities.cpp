@@ -41,7 +41,7 @@ FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t const 
         throw std::runtime_error{ "error: could not open file" };
     }
 
-    FileChunk result { .eof = false };
+    FileChunk result { .startLine = startLine, .eof = false };
     int64_t lineNumber = 1;
     for (; lineNumber <= endLine; ++lineNumber)
     {
@@ -62,6 +62,17 @@ FileChunk RawReadTextFileChunk(std::filesystem::path const& path, int64_t const 
     {
         result.startLine = lineNumber;
     }
+
+    if (!result.eof)
+    {
+        // Find whether we are at the end of the file.
+        std::string line;
+        if (!std::getline(input, line))
+        {
+            result.eof = true;
+        }
+    }
+
     return result;
 }
 

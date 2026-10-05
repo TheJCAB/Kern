@@ -1,7 +1,5 @@
 #include "Session.h"
 
-#include <Windows.h>
-
 #include "FileUtilities.h"
 #include "JsonUtilities.h"
 #include "NetworkUtilities.h"
@@ -351,7 +349,7 @@ struct Session::Pimpl
                     auto sseCallback =
                         [&](std::string_view event)
                         {
-                            OutputDebugString(std::format("Response SSE Event: {}\n", event).c_str());
+                            //std::println("Response SSE Event: {}\n", event);
                             json jsonEvent = json::parse(event.begin(), event.end(), nullptr, false);
                             auto modelResponseDelta = ExtractModelContentDelta(jsonEvent);
                             if (!modelResponseDelta.reasoning.empty())
@@ -388,6 +386,7 @@ struct Session::Pimpl
                                 toolCall.name      += toolCallDelta.name;
                                 toolCall.arguments += toolCallDelta.arguments;
                             }
+                            std::cout.flush();
                         };
 
                     (void)HttpPost(m_endpointDescriptor, payload, sseCallback);

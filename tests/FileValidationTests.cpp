@@ -78,7 +78,7 @@ void TestReadWriteOperations() {
     // Test ReadChunk
     FileChunk chunk = vfs.ReadTextFileChunk(filePath, 1, 2);
     ExpectEqual(chunk.startLine, 1, "Chunk start line should be 1");
-    ExpectEqual(chunk.lines.size(), 2, "Chunk should contain 2 lines");
+    ExpectEqual(chunk.lines.size(), 2u, "Chunk should contain 2 lines");
     if (!chunk.lines.empty()) {
         ExpectEqual(chunk.lines[0], "Hello World", "First line should match");
         ExpectEqual(chunk.lines[1], "Line 2", "Second line should match");

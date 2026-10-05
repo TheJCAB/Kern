@@ -12,5 +12,5 @@ auto GetOrDefault(json const& j, std::string_view key, T const& fallback)
     {
         return it->get<decltype(j.value(key, fallback))>();
     }
-    return { fallback };
+    return fallback;
 }

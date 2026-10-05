@@ -10,8 +10,8 @@ std::string RawReadTextFile(std::filesystem::path const& path);
 struct FileChunk
 {
     int64_t                  startLine = 1;
-    std::vector<std::string> lines;
-    bool                     eof;
+    std::vector<std::string> lines     {};
+    bool                     eof       = false;
 };
 
 // TODO: Implement this as streaming via std::generator.

@@ -250,7 +250,7 @@ struct Session::Pimpl
 
         if (result.reason != ResponseFinishReason::stop && result.reason != ResponseFinishReason::tool_calls)
         {
-            std::cout << "Response:\n" << response.dump(2) << std::endl << std::endl;
+            std::println("Response:\n{}\n", response.dump(2));
         }
 
         json const& message = choice.at("message");
@@ -307,7 +307,7 @@ struct Session::Pimpl
     {
         m_conversationHistory.push_back({ .role = "system", .content = std::move(config.systemPrompt) });
 
-        std::cout << "log id: " << m_log.id << std::endl;
+        std::println("log id: {}", m_log.id);
     }
 
     std::string Prompt(std::string_view prompt, unsigned maxTurns)
@@ -358,11 +358,11 @@ struct Session::Pimpl
                                 {
                                     if (modelResponse.reasoning.empty())
                                     {
-                                        std::cout << "\nreasoning>\n\n  | ";
+                                        std::print("\nreasoning>\n\n  | ");
                                     }
                                     auto reasoning = modelResponseDelta.reasoning;
                                     ReplaceNewlinesIn(reasoning, "\n  | ");
-                                    std::cout << reasoning;
+                                    std::print("{}", reasoning);
                                 }
                                 modelResponse.reasoning += modelResponseDelta.reasoning;
                             }
@@ -370,9 +370,9 @@ struct Session::Pimpl
                             {
                                 if (modelResponse.content.empty())
                                 {
-                                    std::cout << "\nassistant>\n\n";
+                                    std::println("\nassistant>\n");
                                 }
-                                std::cout << modelResponseDelta.content;
+                                std::print("{}", modelResponseDelta.content);
                                 modelResponse.content += modelResponseDelta.content;
                             }
                             if (modelResponseDelta.reason != ResponseFinishReason::notFinished)
@@ -395,7 +395,7 @@ struct Session::Pimpl
 
                     for (auto&& [index, call] : toolCalls)
                     {
-                        std::print("Assembled tool call: {}({})\n", call.name, call.arguments);
+                        std::println("Assembled tool call: {}({})", call.name, call.arguments);
                         modelResponse.toolCalls.push_back(
                             ToolCall{
                                 .id        = call.id,
@@ -429,7 +429,7 @@ struct Session::Pimpl
                 // Show the reasoning stream from the model.
                 if (!modelResponse.reasoning.empty() && IsOllamaEndpoint())
                 {
-                    std::cout << "\nreasoning> " << modelResponse.reasoning << std::endl << std::endl;
+                    std::println("\nreasoning> {}\n", modelResponse.reasoning);
                 }
 
                 if (!modelResponse.content.empty())
@@ -440,7 +440,7 @@ struct Session::Pimpl
                     {
                         auto& toolResult = toolResponse.value();
 
-                        std::cout << "tool> " << OneLine(modelResponse.content, 20) << " -> " << OneLine(toolResult, 20) << std::endl << std::endl;
+                        std::println("tool> {} -> {}\n", OneLine(modelResponse.content, 20), OneLine(toolResult, 20));
 
                         m_conversationHistory.push_back({
                             .role    = "user",
@@ -454,7 +454,7 @@ struct Session::Pimpl
                     }
                     else if (IsOllamaEndpoint()) // Otherwise, we already did during streaming
                     {
-                        std::cout << "\nassistant> " << modelResponse.content << std::endl << std::endl;
+                        std::println("\nassistant> {}\n", modelResponse.content);
                     }
                 }
 
@@ -467,7 +467,7 @@ struct Session::Pimpl
                     if (!modelResponse.toolCalls.empty())
                     {
                         modelResponse.reason = ResponseFinishReason::tool_calls;
-                        std::print("Found {} XML tools\n", modelResponse.toolCalls.size());
+                        std::println("Found {} XML tools", modelResponse.toolCalls.size());
                     }
                     else
                     {
@@ -485,7 +485,7 @@ struct Session::Pimpl
                     {
                         if (modelResponse.content.empty())
                         {
-                            std::cerr << "The model said it was calling tools, but we didn't find any tool to call" << std::endl;
+                            std::println("The model said it was calling tools, but we didn't find any tool to call");
                             throw std::runtime_error("The model said it was calling tools, but we didn't find any tool to call");
                         }
                         else
@@ -521,9 +521,9 @@ struct Session::Pimpl
 
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
-                        std::print("\ntool call [{}]> {}({})\n", toolCall.id, toolCall.name, OneLine(toolCall.arguments.dump(), 60));
+                        std::println("\ntool call [{}]> {}({})", toolCall.id, toolCall.name, OneLine(toolCall.arguments.dump(), 60));
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, m_tools);
-                        std::print("\ntool result [{}]> {} -> {}\n", toolCall.id, toolCall.name, OneLine(toolResult, 60));
+                        std::println("\ntool result [{}]> {} -> {}", toolCall.id, toolCall.name, OneLine(toolResult, 60));
                         if (IsOllamaEndpoint())
                         {
                             //m_conversationHistory.push_back({
@@ -554,13 +554,13 @@ struct Session::Pimpl
                 }
                 else
                 {
-                    std::cerr << "TODO: stop reason " << to_string(modelResponse.reason);
+                    std::println("TODO: stop reason {}", to_string(modelResponse.reason));
                     throw std::runtime_error(std::string("TODO: stop reason ") + to_string(modelResponse.reason));
                 }
             }
             catch (std::exception const& error)
             {
-                std::cerr << "agent error: " << error.what() << std::endl;
+                std::println("agent error: {}", error.what());
                 throw;
             }
         }

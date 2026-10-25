@@ -26,14 +26,14 @@ std::optional<ToolCall> XmlToolCallParser::Parse()
 
     Consume("<tool_call>");
 
-    std::print("<tool_call> found!\n");
+    std::println("<tool_call> found!");
 
     SkipWhitespace();
 
     ToolCall result;
     if (!ConsumeFunction(result.name))
     {
-        std::print("Failed to consume function at {}\n", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
+        std::println("Failed to consume function at {}", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
         return std::nullopt;
     }
 
@@ -48,7 +48,7 @@ std::optional<ToolCall> XmlToolCallParser::Parse()
             std::string name;
             if (!ConsumeParameter(name))
             {
-                std::print("Failed to consume parameter at {}\n", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
+                std::println("Failed to consume parameter at {}", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
                 return std::nullopt;
             }
 
@@ -57,7 +57,7 @@ std::optional<ToolCall> XmlToolCallParser::Parse()
             std::string value;
             if (!ConsumeParameterValue(value))
             {
-                std::print("Failed to consume parameter value at {}\n", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
+                std::println("Failed to consume parameter value at {}", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
                 return std::nullopt;
             }
 
@@ -69,7 +69,7 @@ std::optional<ToolCall> XmlToolCallParser::Parse()
         if (Consume("</function>"))
             break;
 
-        std::print("Failed to consume function end tag at {}\n", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
+        std::println("Failed to consume function end tag at {}", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
 
         return std::nullopt;
     }
@@ -77,7 +77,7 @@ std::optional<ToolCall> XmlToolCallParser::Parse()
     SkipWhitespace();
     if (!Consume("</tool_call>"))
     {
-        std::print("Failed to consume tool_call end tag at {}\n", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
+        std::println("Failed to consume tool_call end tag at {}", m_input.substr(m_pos, std::min<size_t>(20, m_input.size() - m_pos)));
         return std::nullopt;
     }
 

@@ -115,7 +115,7 @@ std::filesystem::path GetExecutableDirectory()
             catch (...) {}
 #endif
 
-            std::cerr << "error: could not get executable path. Using current path instead." << std::endl;
+            std::println("error: could not get executable path. Using current path instead.");
             return std::filesystem::current_path();
         }
         ();

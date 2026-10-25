@@ -72,8 +72,8 @@ int main(int argc, char** argv)
                     }
                     catch(const std::exception& e)
                     {
-                        std::cerr << "Invalid --endpoint argument: " << endpointName << " (" << e.what() << ")\n";
-                        std::cerr << "  only 'ollama', 'llama.cpp' or a valid URL are allowed\n";
+                        std::println("Invalid --endpoint argument: {} ({}):", endpointName, e.what());
+                        std::println("  only 'ollama', 'llama.cpp' or a valid URL are allowed");
                         exit(1);
                     }
                 }
@@ -133,13 +133,13 @@ int main(int argc, char** argv)
     }
     catch(const std::exception& e)
     {
-        std::cerr << "Couldn't parse one or more parameters: " << e.what() << '\n';
+        std::println("Couldn't parse one or more parameters: {}", e.what());
         exit(1);
     }
 
     if (prompt.empty())
     {
-        std::cerr << "Required prompt is missing\n";
+        std::println("Required prompt is missing");
         exit(1);
     }
 
@@ -193,7 +193,7 @@ int main(int argc, char** argv)
     }
     catch(const std::exception& e)
     {
-        std::cerr << "Fatal error: " << e.what() << '\n';
+        std::println("Fatal error: {}", e.what());
         exit(1);
     }
 }

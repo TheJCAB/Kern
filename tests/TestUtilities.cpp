@@ -19,7 +19,7 @@ void Expect(bool condition, std::string_view message, std::source_location const
     if (!condition)
     {
         auto const fullMessage = std::format("{}:{},{}: error in function {} : {}", location.file_name(), location.line(), location.column(),  location.function_name(), message);
-        std::cerr << fullMessage << std::endl;
+        std::println("{}", fullMessage);
         throw std::runtime_error{ fullMessage };
     }
 }

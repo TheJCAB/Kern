@@ -1,5 +1,8 @@
+#include "Credentials.h"
 #include "FileUtilities.h"
+#include "Logging.h"
 #include "NetworkUtilities.h"
+#include "Services.h"
 #include "Session.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
@@ -10,8 +13,10 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <print>
 #include <span>
 #include <stdexcept>
@@ -30,15 +35,37 @@ constexpr ToolDefinition MainTools[] =
 
 }
 
-Endpoint const ollamaEndpoint  { .host = "127.0.0.1", .port = 11434, .path = "/api/chat" };
-Endpoint const llamacppEndpoint{ .host = "127.0.0.1", .port =  8080, .path = "/v1/chat/completions" };
+void PrintUsage()
+{
+    std::println("Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--list-services] PROMPT");
+    std::println("  --log-level LEVEL diagnostics on stderr: off, error, warning (default), info, debug, trace");
+    std::println("  --service NAME    use a service from the built-ins or the services file ({})", GetServicesConfigPath().string());
+    std::println("  --endpoint URL    use an ad-hoc endpoint that needs no API key ('ollama' and 'llama.cpp' are accepted as service names)");
+}
+
+void ListServices()
+{
+    auto const sources = DefaultCredentialSources();
+    for (auto const& service : LoadServices())
+    {
+        std::string keyStatus = "no API key";
+        if (!service.apiKeyEnv.empty())
+        {
+            // Only report whether a key is available; never its value.
+            keyStatus = std::format("{} ({})", service.apiKeyEnv, FindApiKey(service, sources) ? "set" : "NOT SET");
+        }
+        std::println("{:<16} {}  [{}]", service.name, service.endpoint, keyStatus);
+    }
+}
 
 int main(int argc, char** argv)
 {
     ConfigureConsoleForUtf8();
 
-    Endpoint endpoint = llamacppEndpoint;
-    std::string model = "gemma4";
+    std::string serviceName;
+    std::string endpointUrl;
+    std::optional<std::uint32_t> portOverride;
+    std::optional<std::string> modelOverride;
     std::string prompt;
     unsigned maxTurns = 50;
 
@@ -47,7 +74,36 @@ int main(int argc, char** argv)
         for (int i = 1; i < argc; ++i)
         {
             std::string const arg = argv[i];
-            if (arg == "--endpoint")
+            if (arg == "--list-services")
+            {
+                try
+                {
+                    ListServices();
+                }
+                catch(const std::exception& e)
+                {
+                    std::println("Fatal error: {}", e.what());
+                    exit(1);
+                }
+                return 0;
+            }
+            else if (arg == "--help" || arg == "-h")
+            {
+                PrintUsage();
+                return 0;
+            }
+            else if (arg == "--service")
+            {
+                ++i;
+                if (i >= argc)
+                {
+                    std::println("Missing argument for --service");
+                    exit(1);
+                }
+                serviceName = argv[i];
+                endpointUrl.clear();
+            }
+            else if (arg == "--endpoint")
             {
                 ++i;
                 if (i >= argc)
@@ -55,28 +111,33 @@ int main(int argc, char** argv)
                     std::println("Missing argument for --endpoint");
                     exit(1);
                 }
-                std::string_view const endpointName = argv[i];
-                if (endpointName == "ollama")
+                std::string_view const endpointArg = argv[i];
+                if (endpointArg == "ollama" || endpointArg == "llama.cpp")
                 {
-                    endpoint = ollamaEndpoint;
-                }
-                else if (endpointName == "llama.cpp")
-                {
-                    endpoint = llamacppEndpoint;
+                    serviceName = endpointArg;
+                    endpointUrl.clear();
                 }
                 else
                 {
-                    try
-                    {
-                        endpoint = ParseEndpoint(endpointName);
-                    }
-                    catch(const std::exception& e)
-                    {
-                        std::println("Invalid --endpoint argument: {} ({}):", endpointName, e.what());
-                        std::println("  only 'ollama', 'llama.cpp' or a valid URL are allowed");
-                        exit(1);
-                    }
+                    endpointUrl = endpointArg;
+                    serviceName.clear();
                 }
+            }
+            else if (arg == "--log-level")
+            {
+                ++i;
+                if (i >= argc)
+                {
+                    std::println("Missing argument for --log-level");
+                    exit(1);
+                }
+                auto const level = ParseLogLevel(argv[i]);
+                if (!level)
+                {
+                    std::println("Invalid --log-level argument: {} (use off, error, warning, info, debug or trace)", argv[i]);
+                    exit(1);
+                }
+                SetLogLevel(*level);
             }
             else if (arg == "--port")
             {
@@ -92,7 +153,7 @@ int main(int argc, char** argv)
                     std::println("Invalid --port argument: {}", argv[i]);
                     exit(1);
                 }
-                endpoint.port = static_cast<std::uint32_t>(value);
+                portOverride = static_cast<std::uint32_t>(value);
             }
             else if (arg == "--max-turns")
             {
@@ -118,7 +179,7 @@ int main(int argc, char** argv)
                     std::println("Missing argument for --model");
                     exit(1);
                 }
-                model = argv[i];
+                modelOverride = argv[i];
             }
             else if (prompt.empty())
             {
@@ -141,6 +202,40 @@ int main(int argc, char** argv)
     {
         std::println("Required prompt is missing");
         exit(1);
+    }
+
+    Endpoint endpoint;
+    std::string model = "gemma4";
+    try
+    {
+        if (!endpointUrl.empty())
+        {
+            // Ad-hoc endpoints have no API key, so there's nothing to protect.
+            endpoint = ParseEndpoint(endpointUrl);
+        }
+        else
+        {
+            auto const services = LoadServices();
+            auto const& service = FindService(services, serviceName.empty() ? "llama.cpp" : serviceName);
+            endpoint = ResolveService(service, DefaultCredentialSources());
+            if (!service.model.empty())
+            {
+                model = service.model;
+            }
+        }
+    }
+    catch(const std::exception& e)
+    {
+        std::println("Couldn't set up the service: {}", e.what());
+        exit(1);
+    }
+    if (portOverride)
+    {
+        endpoint.port = *portOverride;
+    }
+    if (modelOverride)
+    {
+        model = *modelOverride;
     }
 
     std::string workspaceInstructions;

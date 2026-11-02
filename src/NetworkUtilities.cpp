@@ -2,63 +2,81 @@
 #include "NetworkUtilities.h"
 
 #include "FileUtilities.h"
+#include "Logging.h"
 #include "StringUtilities.h"
 
 #include <httplib.h>
 
+#include <chrono>
 #include <mutex>
 #include <print>
 #include <stdexcept>
 #include <utility>
 
-Endpoint ParseEndpoint(std::string_view const endpoint)
+HttpResult HttpPost(Endpoint const& endpoint, std::string_view const payloadType, std::string_view const payload, std::function<void(std::string_view)> const& sseCallback)
 {
-    Endpoint result{};
-
-    std::string const scheme = "http://";
-    if (endpoint.rfind(scheme, 0) != 0)
+    // Defense in depth: callers must have vetted the endpoint, but never send a key in cleartext to a remote host regardless.
+    if (!endpoint.apiKey.empty() && !endpoint.secure && !IsLoopbackHost(endpoint.host))
     {
-        throw std::runtime_error("Only http:// endpoints are supported");
+        throw std::runtime_error("Refusing to send an API key over an unencrypted connection");
     }
 
-    std::string_view const target = endpoint.substr(scheme.size());
-    std::size_t const slash_pos = target.find('/');
-    std::string_view authority;
-    if (slash_pos != std::string::npos)
+    std::string const hostForUrl = endpoint.host.find(':') != std::string::npos ? "[" + endpoint.host + "]" : endpoint.host;
+    httplib::Client cli(std::string(endpoint.secure ? "https://" : "http://") + hostForUrl + ":" + std::to_string(endpoint.port));
+    cli.set_decompress(false); // We ask for identity encoding; some servers echo "Content-Encoding: identity", which httplib would reject.
+    cli.set_error_logger([](httplib::Error const error, httplib::Request const*)
     {
-        authority = target.substr(0, slash_pos);
-        result.path = target.substr(slash_pos);
-    }
-    else
-    {
-        authority = target;
-        result.path = "/";
-    }
+        Log(LogLevel::debug, "httplib error: {}", httplib::to_string(error));
+    });
 
-    std::size_t const colon_pos = authority.find(':');
-    if (colon_pos != std::string::npos)
+    httplib::Headers headers;
+    if (!endpoint.apiKey.empty())
     {
-        result.host = authority.substr(0, colon_pos);
-        result.port = static_cast<std::uint32_t>(std::stoul(std::string{authority.substr(colon_pos + 1)}));
-    }
-    else
-    {
-        result.host = authority;
-        result.port = 80;
+        headers.emplace("Authorization", "Bearer " + endpoint.apiKey);
     }
 
-    return result;
-}
-
-std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadType, std::string_view const payload, std::function<void(std::string_view)> const& sseCallback)
-{
-    httplib::Client cli(endpoint.host, static_cast<int>(endpoint.port));
-
+    std::string rawBody;
     std::string buffer;
     std::string sseChunk;
-    auto res = cli.Post(endpoint.path, httplib::Headers{}, std::string{ payload }, std::string{ payloadType },
-        [&](char const *data, size_t len)
+    std::size_t eventCount = 0;
+
+    Log(LogLevel::debug, "POST {}://{}:{}{} ({} bytes, API key: {})",
+        endpoint.secure ? "https" : "http", endpoint.host, endpoint.port, endpoint.path, payload.size(), endpoint.apiKey.empty() ? "none" : "sent as bearer token");
+    auto const start = std::chrono::steady_clock::now();
+
+    httplib::Request request;
+    request.method = "POST";
+    request.path = endpoint.path;
+    request.headers = headers;
+    request.headers.emplace("Content-Type", std::string{ payloadType });
+    // SSE gains nothing from compression, and streaming decompression is a needless source of failures.
+    request.headers.emplace("Accept-Encoding", "identity");
+    request.body = std::string{ payload };
+
+    int responseStatus = 0;
+    // Only response headers are logged, never request headers (which carry the API key).
+    request.response_handler = [&](httplib::Response const& response)
+    {
+        responseStatus = response.status;
+        auto const encoding = response.get_header_value("Content-Encoding");
+        if (!encoding.empty() && encoding != "identity")
         {
+            Log(LogLevel::error, "the server compressed the response ({}) despite being asked not to; Kern can't decode it", encoding);
+            return false;
+        }
+        Log(LogLevel::debug, "response headers: HTTP {}, Content-Type: '{}', Content-Encoding: '{}', Transfer-Encoding: '{}', Content-Length: '{}'",
+            response.status,
+            response.get_header_value("Content-Type"),
+            response.get_header_value("Content-Encoding"),
+            response.get_header_value("Transfer-Encoding"),
+            response.get_header_value("Content-Length"));
+        return true;
+    };
+
+    request.content_receiver =
+        [&](char const *data, size_t len, size_t /*offset*/, size_t /*total*/)
+        {
+            rawBody.append(data, len);
             buffer.append(data, len);
 
             size_t pos = 0;
@@ -91,6 +109,8 @@ std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadTyp
                     }
                     else if (!sseChunk.empty())
                     {
+                        ++eventCount;
+                        Log(LogLevel::trace, "SSE event {}: {}", eventCount, sseChunk);
                         sseCallback(std::exchange(sseChunk, {}));
                     }
                     continue;
@@ -111,15 +131,44 @@ std::string HttpPost(Endpoint const& endpoint, std::string_view const payloadTyp
             // Remove processed part
             buffer.erase(0, pos);
             return true; // continue streaming
-        }
-    );
+        };
 
+    auto res = cli.send(request);
+
+    HttpResult result;
+    result.status = responseStatus;
     if (res)
     {
-        return res->body;
+        result.status = res->status;
+        if (rawBody.empty())
+        {
+            rawBody = res->body; // not streamed (e.g. some error responses)
+        }
     }
     else
     {
-        return "HTTP error";
+        result.error = httplib::to_string(res.error());
     }
+    // A misbehaving server could echo the key back; make sure it can never reach logs or error messages.
+    if (!endpoint.apiKey.empty())
+    {
+        ReplaceIn(rawBody, endpoint.apiKey, "[redacted]");
+    }
+    result.body = std::move(rawBody);
+
+    auto const elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    if (result.error.empty())
+    {
+        Log(LogLevel::debug, "HTTP {} after {} ms: {} bytes, {} SSE events", result.status, elapsedMs, result.body.size(), eventCount);
+    }
+    else
+    {
+        Log(LogLevel::error, "HTTP request failed after {} ms: {} (HTTP status seen: {}, {} bytes received, {} SSE events)",
+            elapsedMs, result.error, result.status, result.body.size(), eventCount);
+        if (!result.body.empty())
+        {
+            Log(LogLevel::error, "partial response body: {}", result.body.substr(0, 1000));
+        }
+    }
+    return result;
 }

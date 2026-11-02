@@ -34,3 +34,26 @@ target_include_directories(file_validation_tests PRIVATE ../src)
 target_link_libraries(file_validation_tests PRIVATE TestUtilities)
 
 add_test(NAME file_validation_tests COMMAND file_validation_tests)
+
+add_executable(services_tests
+    ServicesTests.cpp
+    ../src/Credentials.cpp
+    ../src/Endpoint.cpp
+    ../src/FileUtilities.cpp
+    ../src/Services.cpp
+)
+
+target_include_directories(services_tests PRIVATE ../src)
+target_link_libraries(services_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME services_tests COMMAND services_tests)
+
+add_executable(logging_tests
+    LoggingTests.cpp
+    ../src/Logging.cpp
+)
+
+target_include_directories(logging_tests PRIVATE ../src)
+target_link_libraries(logging_tests PRIVATE TestUtilities)
+
+add_test(NAME logging_tests COMMAND logging_tests)

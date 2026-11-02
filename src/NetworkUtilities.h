@@ -1,17 +1,19 @@
 #pragma once
 
-#include <cstdint>
+#include "Endpoint.h"
+
 #include <functional>
 #include <string>
 #include <string_view>
 
-struct Endpoint
+struct HttpResult
 {
-    std::string   host;
-    std::uint32_t port;
-    std::string   path;
+    int         status = 0;  // 0 if no response was received
+    std::string error;       // transport-level failure (connection, TLS, timeout...); empty if a response arrived
+    std::string body;        // the complete raw response body, with the API key redacted
+
+    bool IsSuccess() const { return error.empty() && status >= 200 && status < 300; }
 };
 
-Endpoint ParseEndpoint(std::string_view endpoint);
-
-std::string HttpPost(Endpoint const& endpoint, std::string_view payloadType, std::string_view payload, std::function<void(std::string_view)> const&);
+// Throws only if the request is refused before being sent; otherwise failures are reported in the result.
+HttpResult HttpPost(Endpoint const& endpoint, std::string_view payloadType, std::string_view payload, std::function<void(std::string_view)> const&);

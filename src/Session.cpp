@@ -2,6 +2,7 @@
 
 #include "FileUtilities.h"
 #include "JsonUtilities.h"
+#include "Logging.h"
 #include "NetworkUtilities.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
@@ -26,7 +27,7 @@
 #include <vector>
 
 
-std::string HttpPost(Endpoint const& endpoint, json const& payload, std::function<void(std::string_view)> const& sseCallback)
+HttpResult HttpPost(Endpoint const& endpoint, json const& payload, std::function<void(std::string_view)> const& sseCallback)
 {
     return HttpPost(endpoint, "application/json", payload.dump(), sseCallback);
 }
@@ -51,15 +52,15 @@ struct Session::Pimpl
         return id;
     }
 
-    struct Log
+    struct LogFileState
     {
         std::string id = GenerateLogId();
         int         sequence = 0;
     };
 
-    static void WriteLogFile(Log& log, std::string_view const name, std::string_view const content)
+    static void WriteLogFile(LogFileState& log, std::string_view const name, std::string_view const content, std::string_view const extension = "json")
     {
-        auto const logPath = BuildLogPath(log.id, log.sequence, name);
+        auto const logPath = BuildLogPath(log.id, log.sequence, name, extension);
         if (auto output = std::ofstream(logPath, std::ios::binary | std::ios::trunc))
         {
             output << content;
@@ -132,13 +133,13 @@ struct Session::Pimpl
         case ResponseFinishReason::length        : return "length";
         case ResponseFinishReason::tool_calls    : return "tool_calls";
         case ResponseFinishReason::content_filter: return "content_filter";
-        default                                  : return "<unknown ResponseFinishReason>";
+        default                                  : return std::format("<unknown ResponseFinishReason {}>", static_cast<int>(reason));
         }
     }
 
     struct ModelResponse
     {
-        ResponseFinishReason  reason;
+        ResponseFinishReason  reason = ResponseFinishReason::notFinished;
         std::string           reasoning;
         std::string           content;
         std::vector<ToolCall> toolCalls;
@@ -146,7 +147,7 @@ struct Session::Pimpl
 
     struct ModelResponseDelta
     {
-        ResponseFinishReason       reason;
+        ResponseFinishReason       reason = ResponseFinishReason::notFinished;
         std::string                reasoning;
         std::string                content;
         std::vector<ToolCallDelta> toolCalls;
@@ -167,7 +168,19 @@ struct Session::Pimpl
 
         json const& choices = event.at("choices");
         if (!choices.is_array()) throw std::runtime_error("malformed SSE event choices: not an array");
-        if (choices.empty()) throw std::runtime_error("malformed SSE event choices: it's empty");
+        if (choices.empty())
+        {
+            // Legitimate: services send a final usage-only event (stream_options.include_usage) with no choices.
+            if (event.contains("usage"))
+            {
+                Log(LogLevel::debug, "token usage: {}", event.at("usage").dump());
+            }
+            else
+            {
+                Log(LogLevel::debug, "ignoring SSE event with no choices: {}", event.dump());
+            }
+            return result;
+        }
 
         auto& choice = choices[0];
 
@@ -292,11 +305,29 @@ struct Session::Pimpl
         return path;
     }
 
-    static std::filesystem::path BuildLogPath(std::string_view const logId, int sequence, std::string_view const name)
+    static std::filesystem::path BuildLogPath(std::string_view const logId, int sequence, std::string_view const name, std::string_view const extension)
     {
         std::ostringstream filename;
-        filename << logId << '_' << std::setw(3) << std::setfill('0') << sequence << '_' << name << ".json";
+        filename << logId << '_' << std::setw(3) << std::setfill('0') << sequence << '_' << name << '.' << extension;
         return GetLogsDirectory() / filename.str();
+    }
+
+    static void CheckHttpResult(HttpResult const& result)
+    {
+        if (!result.error.empty())
+        {
+            throw std::runtime_error("HTTP request failed: " + result.error);
+        }
+        if (!result.IsSuccess())
+        {
+            constexpr std::size_t maxBodyInMessage = 1000;
+            std::string body = result.body.substr(0, maxBodyInMessage);
+            if (result.body.size() > maxBodyInMessage)
+            {
+                body += "...";
+            }
+            throw std::runtime_error(std::format("the service answered HTTP {}: {}", result.status, body));
+        }
     }
 
     Pimpl(Config config)
@@ -328,17 +359,27 @@ struct Session::Pimpl
             {
                 json const payload = BuildPayload();
                 WriteLogFile(m_log, "request", payload.dump(2));
+                Log(LogLevel::debug, "turn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
+                    turn, m_conversationHistory.size(), m_modelName, m_log.id, m_log.sequence);
 
                 ModelResponse modelResponse;
                 if (IsOllamaEndpoint())
                 {
-                    std::string const responseBody = HttpPost(m_endpointDescriptor, payload, [](auto){});
+                    HttpResult const httpResult = HttpPost(m_endpointDescriptor, payload, [](auto){});
+                    if (IsLogEnabled(LogLevel::debug))
+                    {
+                        WriteLogFile(m_log, "response_raw", httpResult.body, "txt");
+                    }
+                    CheckHttpResult(httpResult);
+                    std::string const& responseBody = httpResult.body;
                     //std::cout << "Response: " << responseBody << std::endl;
 
                     json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
                     WriteLogFile(m_log, "response", response.dump(2));
 
                     modelResponse = ExtractModelContent(response);
+                    Log(LogLevel::debug, "finish_reason: {}, content: {} chars, tool calls: {}",
+                        to_string(modelResponse.reason), modelResponse.content.size(), modelResponse.toolCalls.size());
                 }
                 else
                 {
@@ -351,6 +392,10 @@ struct Session::Pimpl
                         {
                             //std::println("Response SSE Event: {}\n", event);
                             json jsonEvent = json::parse(event.begin(), event.end(), nullptr, false);
+                            if (jsonEvent.is_discarded())
+                            {
+                                Log(LogLevel::error, "SSE event is not valid JSON: {}", event.substr(0, 500));
+                            }
                             auto modelResponseDelta = ExtractModelContentDelta(jsonEvent);
                             if (!modelResponseDelta.reasoning.empty())
                             {
@@ -389,9 +434,25 @@ struct Session::Pimpl
                             std::cout.flush();
                         };
 
-                    (void)HttpPost(m_endpointDescriptor, payload, sseCallback);
+                    HttpResult const httpResult = HttpPost(m_endpointDescriptor, payload, sseCallback);
+                    if (IsLogEnabled(LogLevel::debug))
+                    {
+                        WriteLogFile(m_log, "response_raw", httpResult.body, "txt");
+                    }
+                    CheckHttpResult(httpResult);
 
                     std::println();
+
+                    if (modelResponse.reason == ResponseFinishReason::notFinished)
+                    {
+                        // Typically this means the body wasn't an event stream at all, or the stream was cut short.
+                        Log(LogLevel::error, "the response stream ended without a finish_reason (HTTP {}, {} bytes, content: {} chars, tool calls: {})",
+                            httpResult.status, httpResult.body.size(), modelResponse.content.size(), toolCalls.size());
+                        Log(LogLevel::error, "response body starts with: {}", httpResult.body.substr(0, 500));
+                        throw std::runtime_error("the response ended without a finish_reason; run with --log-level debug (or trace) to inspect it");
+                    }
+                    Log(LogLevel::debug, "finish_reason: {}, content: {} chars, reasoning: {} chars, tool calls: {}",
+                        to_string(modelResponse.reason), modelResponse.content.size(), modelResponse.reasoning.size(), toolCalls.size());
 
                     for (auto&& [index, call] : toolCalls)
                     {
@@ -575,7 +636,7 @@ struct Session::Pimpl
     std::vector<ToolDefinition>      m_tools;
 
     std::vector<ConversationMessage> m_conversationHistory;
-    Log                              m_log;
+    LogFileState                     m_log;
 };
 
 Session::Session(Config config) : m_pimpl{ std::make_unique<Pimpl>(std::move(config)) } {}

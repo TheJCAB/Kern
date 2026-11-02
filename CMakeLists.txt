@@ -25,12 +25,17 @@ include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
 CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
 
-CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0)
+# HTTPS is mandatory: API keys must never travel over unencrypted connections to remote services.
+CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0 OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON")
 
 add_executable(kern
+    src/Credentials.cpp         src/Credentials.h
+    src/Endpoint.cpp            src/Endpoint.h
     src/FileUtilities.cpp       src/FileUtilities.h
     src/FileValidation.cpp      src/FileValidation.h
+    src/Logging.cpp             src/Logging.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
+    src/Services.cpp            src/Services.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
     src/XmlToolCallParser.cpp   src/XmlToolCallParser.h

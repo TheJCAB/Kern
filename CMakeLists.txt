@@ -30,6 +30,7 @@ CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0 
 
 add_executable(kern
     src/Credentials.cpp         src/Credentials.h
+    src/CommandLine.cpp         src/CommandLine.h
     src/Endpoint.cpp            src/Endpoint.h
     src/FileUtilities.cpp       src/FileUtilities.h
     src/FileValidation.cpp      src/FileValidation.h
@@ -41,12 +42,13 @@ add_executable(kern
     src/XmlToolCallParser.cpp   src/XmlToolCallParser.h
 
     src/Session.cpp         src/Session.h
-
     src/Tools/edit_file_lines.h
     src/Tools/glob.h
     src/Tools/grep.h
+    src/Tools/implement.h
     src/Tools/read_file.h
     src/Tools/read_file_chunk.h
+    src/Tools/research.h
     src/Tools/write_file.h
 
     src/main.cpp

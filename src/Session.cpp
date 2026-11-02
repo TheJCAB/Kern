@@ -643,6 +643,10 @@ Session::Session(Config config) : m_pimpl{ std::make_unique<Pimpl>(std::move(con
 
 Session::~Session() = default;
 
+Session::Session(Session&&) = default;
+
+Session& Session::operator=(Session&&) = default;
+
 std::string Session::Prompt(std::string_view prompt, unsigned maxTurns)
 {
     return m_pimpl->Prompt(prompt, maxTurns);

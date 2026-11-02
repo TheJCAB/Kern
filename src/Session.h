@@ -5,6 +5,8 @@
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 
+#include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,8 +25,13 @@ public:
     Session(Config);
     ~Session();
 
+    Session(Session const&)            = delete;
+    Session& operator=(Session const&) = delete;
+    Session(Session&&);
+    Session& operator=(Session&&);
+
     std::string Prompt(std::string_view prompt, unsigned maxTurns);
-    
+
 private:
     struct Pimpl;
     std::unique_ptr<Pimpl> m_pimpl;

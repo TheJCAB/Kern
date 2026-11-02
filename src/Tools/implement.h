@@ -42,11 +42,11 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 
     try
     {
-        Session session = context.createNewSession(RawReadTextFile(GetExecutableDirectory() / "data" / "ImplementSystemPrompt.txt"), Tools);
+        Session session = context.createNewSession(context, RawReadTextFile(GetExecutableDirectory() / "data" / "ImplementSystemPrompt.txt"), Tools);
 
         response["response"] = session.Prompt(prompt, 50);
     }
-    catch(const std::exception& e)
+    catch (std::exception const& e)
     {
         response["error"] = e.what();
     }

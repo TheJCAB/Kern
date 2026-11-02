@@ -1,30 +1,41 @@
+#include "CommandLine.h"
 #include "Credentials.h"
 #include "FileUtilities.h"
 #include "Logging.h"
-#include "NetworkUtilities.h"
 #include "Services.h"
 #include "Session.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 
+#include "Tools/implement.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/research.h"
-#include "Tools/implement.h"
 
-#include <cstdlib>
+#include <cstddef>
+#include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <format>
-#include <fstream>
-#include <iostream>
-#include <optional>
 #include <print>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace
 {
+
+// These defaults are intentional: Kern is meant to be used against a local server.
+constexpr char DefaultServiceName[]  = "llama.cpp";
+constexpr char FallbackModelName[]   = "gemma4";
+
+constexpr std::string_view WorkspaceInstructionFiles[] =
+{
+    "Kern.txt",
+    "Kern.md",
+};
 
 constexpr ToolDefinition MainTools[] =
 {
@@ -33,20 +44,93 @@ constexpr ToolDefinition MainTools[] =
     read_file_chunk,
 };
 
-}
-
-void PrintUsage()
+// Everything a session needs that comes from the command line and the workspace,
+// as opposed to the per-session system prompt and tool list.
+struct SessionSettings
 {
-    std::println("Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--list-services] PROMPT");
-    std::println("  --log-level LEVEL diagnostics on stderr: off, error, warning (default), info, debug, trace");
-    std::println("  --service NAME    use a service from the built-ins or the services file ({})", GetServicesConfigPath().string());
-    std::println("  --endpoint URL    use an ad-hoc endpoint that needs no API key ('ollama' and 'llama.cpp' are accepted as service names)");
+    Endpoint    endpoint;
+    std::string model;
+    std::string workspaceInstructions;
+};
+
+std::string LoadWorkspaceInstructions()
+{
+    std::string instructions;
+
+    for (std::string_view const fileName : WorkspaceInstructionFiles)
+    {
+        std::error_code error;
+        if (!std::filesystem::exists(fileName, error))
+        {
+            continue;
+        }
+
+        // These are appended to the system prompt, so a separator line is added unconditionally.
+        instructions += '\n';
+        instructions += RawReadTextFile(fileName);
+    }
+
+    return instructions;
 }
 
-void ListServices()
+SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
+{
+    SessionSettings settings;
+
+    if (!options.endpointUrl.empty())
+    {
+        // Ad-hoc endpoints have no API key, so there's nothing to protect.
+        settings.endpoint = ParseEndpoint(options.endpointUrl);
+    }
+    else
+    {
+        std::vector<ServiceDefinition> const services = LoadServices();
+        ServiceDefinition const& service = FindService(services, options.serviceName.empty() ? DefaultServiceName : options.serviceName);
+        settings.endpoint = ResolveService(service, DefaultCredentialSources());
+        settings.model    = service.model;
+    }
+
+    if (settings.model.empty())
+    {
+        settings.model = FallbackModelName;
+    }
+    if (options.model)
+    {
+        settings.model = *options.model;
+    }
+    if (options.port)
+    {
+        settings.endpoint.port = *options.port;
+    }
+
+    settings.workspaceInstructions = LoadWorkspaceInstructions();
+
+    return settings;
+}
+
+// Builds the context that tools use. The factory captures the settings by value,
+// so no session ever refers back to this function's locals.
+ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
+{
+    return ToolsRuntimeContext{
+        .createNewSession = [settings = std::move(settings)](ToolsRuntimeContext const& context, std::string_view systemPrompt, std::span<ToolDefinition const> tools)
+        {
+            return Session{Session::Config{
+                .endpointDescriptor = settings.endpoint,
+                .toolContext        = context,
+                .systemPrompt       = std::string(systemPrompt) + settings.workspaceInstructions,
+                .modelName          = settings.model,
+                .tools              = tools,
+            }};
+        },
+        .fs{ std::filesystem::current_path() },
+    };
+}
+
+int ListServices()
 {
     auto const sources = DefaultCredentialSources();
-    for (auto const& service : LoadServices())
+    for (ServiceDefinition const& service : LoadServices())
     {
         std::string keyStatus = "no API key";
         if (!service.apiKeyEnv.empty())
@@ -56,239 +140,78 @@ void ListServices()
         }
         std::println("{:<16} {}  [{}]", service.name, service.endpoint, keyStatus);
     }
+    return 0;
+}
+
+int Run(CommandLineOptions const& options)
+{
+    SessionSettings const settings = ResolveSessionSettings(options);
+
+    Session session{Session::Config{
+        .endpointDescriptor = settings.endpoint,
+        .toolContext        = MakeToolsRuntimeContext(settings),
+        .systemPrompt       = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.workspaceInstructions,
+        .modelName          = settings.model,
+        .tools              = MainTools,
+    }};
+
+    // The response is streamed to the console by Session::Prompt, so there is nothing to return.
+    // TODO: Make console output optional or configurable.
+    (void)session.Prompt(options.prompt, options.maxTurns);
+
+    return 0;
+}
+
 }
 
 int main(int argc, char** argv)
 {
     ConfigureConsoleForUtf8();
 
-    std::string serviceName;
-    std::string endpointUrl;
-    std::optional<std::uint32_t> portOverride;
-    std::optional<std::string> modelOverride;
-    std::string prompt;
-    unsigned maxTurns = 50;
+    std::vector<std::string_view> arguments;
+    arguments.reserve(argc > 0 ? static_cast<std::size_t>(argc - 1) : 0);
+    for (int i = 1; i < argc; ++i)
+    {
+        arguments.emplace_back(argv[i]);
+    }
 
     try
     {
-        for (int i = 1; i < argc; ++i)
+        CommandLineOptions const options = ParseCommandLine(arguments);
+
+        if (options.logLevel)
         {
-            std::string const arg = argv[i];
-            if (arg == "--list-services")
-            {
-                try
-                {
-                    ListServices();
-                }
-                catch(const std::exception& e)
-                {
-                    std::println("Fatal error: {}", e.what());
-                    exit(1);
-                }
-                return 0;
-            }
-            else if (arg == "--help" || arg == "-h")
+            SetLogLevel(*options.logLevel);
+        }
+
+        switch (options.action)
+        {
+            case CommandLineAction::printHelp:
             {
                 PrintUsage();
                 return 0;
             }
-            else if (arg == "--service")
+            case CommandLineAction::listServices:
             {
-                ++i;
-                if (i >= argc)
-                {
-                    std::println("Missing argument for --service");
-                    exit(1);
-                }
-                serviceName = argv[i];
-                endpointUrl.clear();
+                return ListServices();
             }
-            else if (arg == "--endpoint")
+            case CommandLineAction::run:
             {
-                ++i;
-                if (i >= argc)
-                {
-                    std::println("Missing argument for --endpoint");
-                    exit(1);
-                }
-                std::string_view const endpointArg = argv[i];
-                if (endpointArg == "ollama" || endpointArg == "llama.cpp")
-                {
-                    serviceName = endpointArg;
-                    endpointUrl.clear();
-                }
-                else
-                {
-                    endpointUrl = endpointArg;
-                    serviceName.clear();
-                }
-            }
-            else if (arg == "--log-level")
-            {
-                ++i;
-                if (i >= argc)
-                {
-                    std::println("Missing argument for --log-level");
-                    exit(1);
-                }
-                auto const level = ParseLogLevel(argv[i]);
-                if (!level)
-                {
-                    std::println("Invalid --log-level argument: {} (use off, error, warning, info, debug or trace)", argv[i]);
-                    exit(1);
-                }
-                SetLogLevel(*level);
-            }
-            else if (arg == "--port")
-            {
-                ++i;
-                if (i >= argc)
-                {
-                    std::println("Missing argument for --port");
-                    exit(1);
-                }
-                auto const value = std::stoul(argv[i]);
-                if (value > 65535u)
-                {
-                    std::println("Invalid --port argument: {}", argv[i]);
-                    exit(1);
-                }
-                portOverride = static_cast<std::uint32_t>(value);
-            }
-            else if (arg == "--max-turns")
-            {
-                ++i;
-                if (i >= argc)
-                {
-                    std::println("Missing argument for --max-turns");
-                    exit(1);
-                }
-                auto const value = std::stoul(argv[i]);
-                if (value == 0 || value > UINT_MAX)
-                {
-                    std::println("Invalid --max-turns argument: {}", argv[i]);
-                    exit(1);
-                }
-                maxTurns = static_cast<unsigned>(value);
-            }
-            else if (arg == "--model")
-            {
-                ++i;
-                if (i >= argc)
-                {
-                    std::println("Missing argument for --model");
-                    exit(1);
-                }
-                modelOverride = argv[i];
-            }
-            else if (prompt.empty())
-            {
-                prompt = arg;
-            }
-            else
-            {
-                prompt += " ";
-                prompt += arg;
+                break;
             }
         }
-    }
-    catch(const std::exception& e)
-    {
-        std::println("Couldn't parse one or more parameters: {}", e.what());
-        exit(1);
-    }
 
-    if (prompt.empty())
-    {
-        std::println("Required prompt is missing");
-        exit(1);
+        return Run(options);
     }
-
-    Endpoint endpoint;
-    std::string model = "gemma4";
-    try
+    catch (UsageError const& e)
     {
-        if (!endpointUrl.empty())
-        {
-            // Ad-hoc endpoints have no API key, so there's nothing to protect.
-            endpoint = ParseEndpoint(endpointUrl);
-        }
-        else
-        {
-            auto const services = LoadServices();
-            auto const& service = FindService(services, serviceName.empty() ? "llama.cpp" : serviceName);
-            endpoint = ResolveService(service, DefaultCredentialSources());
-            if (!service.model.empty())
-            {
-                model = service.model;
-            }
-        }
+        std::print(stderr, "{}\n\n", e.what());
+        PrintUsage(stderr);
+        return 2;
     }
-    catch(const std::exception& e)
+    catch (std::exception const& e)
     {
-        std::println("Couldn't set up the service: {}", e.what());
-        exit(1);
-    }
-    if (portOverride)
-    {
-        endpoint.port = *portOverride;
-    }
-    if (modelOverride)
-    {
-        model = *modelOverride;
-    }
-
-    std::string workspaceInstructions;
-    if (std::filesystem::is_regular_file("Kern.txt"))
-    {
-        // Note: this will be appended to the system prompt,
-        // so we add a separator line unconditionally.
-        workspaceInstructions += "\n";
-        workspaceInstructions += RawReadTextFile("Kern.txt");
-    }
-    if (std::filesystem::is_regular_file("Kern.md"))
-    {
-        // Note: this will be appended to the system prompt,
-        // so we add a separator line unconditionally.
-        workspaceInstructions += "\n";
-        workspaceInstructions += RawReadTextFile("Kern.md");
-    }
-
-    try
-    {
-        std::string const mainSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt");
-
-        ToolsRuntimeContext toolContext{
-            .createNewSession = [&](std::string_view systemPrompt, std::span<ToolDefinition const> tools)
-            {
-                return Session{Session::Config{
-                    .endpointDescriptor = endpoint,
-                    .toolContext        = toolContext,
-                    .systemPrompt       = std::string(systemPrompt) + workspaceInstructions,
-                    .modelName          = model,
-                    .tools              = tools,
-                }};
-            },
-            .fs{ std::filesystem::current_path() }
-        };
-
-        Session session{Session::Config{
-            .endpointDescriptor = endpoint,
-            .toolContext        = toolContext,
-            .systemPrompt       = mainSystemPrompt + workspaceInstructions,
-            .modelName          = model,
-            .tools              = MainTools,
-        }};
-
-        // We don't need the prompt response here, as it's already output within the function.
-        // TODO: Make console output optional or configurable.
-        (void)session.Prompt(prompt, maxTurns);
-
-        return 0;
-    }
-    catch(const std::exception& e)
-    {
-        std::println("Fatal error: {}", e.what());
-        exit(1);
+        std::print(stderr, "Fatal error: {}\n", e.what());
+        return 1;
     }
 }

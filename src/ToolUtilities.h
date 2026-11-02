@@ -36,8 +36,11 @@ using ToolParameter = std::variant<
 
 class Session;
 struct ToolDefinition;
+struct ToolsRuntimeContext;
 
-using CreateNewSessionFunction = Session(std::string_view systemPrompt, std::span<ToolDefinition const>);
+// The context is passed in explicitly so that a factory never has to capture the
+// context that owns it, which would leave a dangling reference inside every session.
+using CreateNewSessionFunction = Session(ToolsRuntimeContext const& context, std::string_view systemPrompt, std::span<ToolDefinition const> tools);
 
 struct ToolsRuntimeContext
 {

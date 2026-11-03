@@ -30,9 +30,10 @@ struct IntegerToolParameter : ToolParameterBase
     std::optional<std::int64_t> maximum{};
 };
 
-using ToolParameter = std::variant<
-    StringToolParameter,
-    IntegerToolParameter>;
+using ToolParameter = std::variant<StringToolParameter, IntegerToolParameter>;
+
+// The turn budget handed to every subagent session started by `research` or `implement`.
+constexpr unsigned SubagentMaxTurns = 50;
 
 class Session;
 struct ToolDefinition;

@@ -299,23 +299,9 @@ struct Session::Pimpl
         return result;
     }
 
-    static std::string BuildToolResponseMessage(std::string_view const toolName, std::string_view const toolCallId, std::string_view const toolResult)
+    static std::string BuildToolResponseMessage(std::string_view const toolResult)
     {
-        json response = {
-            { "result", std::string(toolResult) },
-        };
-
-        if (!toolName.empty())
-        {
-            response["tool"] = std::string(toolName);
-        }
-
-        if (!toolCallId.empty())
-        {
-            response["tool_call_id"] = std::string(toolCallId);
-        }
-
-        return response.dump();
+        return std::string(toolResult);
     }
 
     static std::filesystem::path const& GetLogsDirectory()
@@ -365,11 +351,11 @@ struct Session::Pimpl
         std::println("log id: {}", m_log.id);
     }
 
-    std::string Prompt(std::string_view prompt, unsigned maxTurns)
+    PromptResult Prompt(std::string_view prompt, unsigned maxTurns)
     {
         if (prompt.empty())
         {
-            return {};
+            return { .ok = false, .errorCode = "empty_prompt", .content = {}, .turnsUsed = 0 };
         }
 
         std::println("===============================\n[{}]\nPrompt: {}", m_log.id, prompt);
@@ -560,7 +546,12 @@ struct Session::Pimpl
                             .role      = "assistant",
                             .content   = modelResponse.content,
                         });
-                        return std::move(modelResponse.content);
+                        return {
+                            .ok        = true,
+                            .errorCode = {},
+                            .content   = std::move(modelResponse.content),
+                            .turnsUsed = turn + 1,
+                        };
                     }
                 }
 
@@ -580,7 +571,12 @@ struct Session::Pimpl
                                 .role      = "assistant",
                                 .content   = modelResponse.content,
                             });
-                            return std::move(modelResponse.content);
+                            return {
+                                .ok        = true,
+                                .errorCode = {},
+                                .content   = std::move(modelResponse.content),
+                                .turnsUsed = turn + 1,
+                            };
                         }
                     }
                     if (!IsOllamaEndpoint())
@@ -611,27 +607,17 @@ struct Session::Pimpl
                         std::println("\ntool result [{}]> {} -> {}", toolCall.id, toolCall.name, OneLine(toolResult, 60));
                         if (IsOllamaEndpoint())
                         {
-                            //m_conversationHistory.push_back({
-                            //    .role      = "assistant",
-                            //    .content   = json{
-                            //        { "type", "function" },
-                            //        { "function", {
-                            //            { "name"     , toolCall.name             },
-                            //            { "arguments", toolCall.arguments.dump() },
-                            //        }},
-                            //        { "id", toolCall.id },
-                            //    }.dump(),
-                            //});
                             m_conversationHistory.push_back({
-                                .role       = "user",
-                                .content    = BuildToolResponseMessage(toolCall.name, toolCall.id, toolResult),
+                                .role       = "tool",
+                                .content    = BuildToolResponseMessage(toolResult),
+                                .toolCallId = toolCall.id,
                             });
                         }
                         else
                         {
                             m_conversationHistory.push_back({
                                 .role       = "tool",
-                                .content    = BuildToolResponseMessage(toolCall.name, toolCall.id, toolResult),
+                                .content    = BuildToolResponseMessage(toolResult),
                                 .toolCallId = toolCall.id,
                             });
                         }
@@ -650,7 +636,7 @@ struct Session::Pimpl
             }
         }
 
-        return "The model took too many turns";
+        return  { .ok = false, .errorCode = "too_many_turns", .content = "The model took too many turns", .turnsUsed = maxTurns };
     }
 
 
@@ -664,6 +650,16 @@ struct Session::Pimpl
     LogFileState                     m_log;
 };
 
+Session::PromptResult::operator nlohmann::json() const
+{
+    return {
+        { "ok"       , ok        },
+        { "errorCode", errorCode },
+        { "content"  , content   },
+        { "turnsUsed", turnsUsed }
+    };
+}
+
 Session::Session(Config config) : m_pimpl{ std::make_unique<Pimpl>(std::move(config)) } {}
 
 Session::~Session() = default;
@@ -672,7 +668,7 @@ Session::Session(Session&&) = default;
 
 Session& Session::operator=(Session&&) = default;
 
-std::string Session::Prompt(std::string_view prompt, unsigned maxTurns)
+Session::PromptResult Session::Prompt(std::string_view prompt, unsigned maxTurns)
 {
     return m_pimpl->Prompt(prompt, maxTurns);
 }

@@ -49,18 +49,7 @@ std::string JoinLines(std::vector<std::string> const& lines)
 
 std::vector<std::string> ParseReplacementLines(std::string_view const content)
 {
-    auto const lines = SplitLines(content);
-    if (content.empty())
-    {
-        return {};
-    }
-
-    if (!content.ends_with('\n'))
-    {
-        return lines;
-    }
-
-    return lines;
+    return SplitLines(content);
 }
 }
 
@@ -90,7 +79,7 @@ inline json EditFileLinesTool(json const& arguments, ToolsRuntimeContext const& 
     {
         response["error"] = "end_line must be greater than 1";
         return response;
-    }    
+    }
 
     if (endLine < startLine)
     {
@@ -157,7 +146,13 @@ inline json EditFileLinesTool(json const& arguments, ToolsRuntimeContext const& 
             throw std::runtime_error("error: unsupported operation");
         }
 
-        RawWriteTextFile(path, JoinLines(updatedLines));
+        std::string contentToWrite = JoinLines(updatedLines);
+        if (!contentToWrite.empty() && original.ends_with('\n') && !contentToWrite.ends_with('\n'))
+        {
+            contentToWrite += '\n';
+        }
+
+        context.fs.WriteTextFile(path, contentToWrite);
 
         response["success"] = true;
     }

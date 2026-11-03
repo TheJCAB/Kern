@@ -161,7 +161,13 @@ int Run(CommandLineOptions const& options)
 
     // The response is streamed to the console by Session::Prompt, so there is nothing to return.
     // TODO: Make console output optional or configurable.
-    (void)session.Prompt(options.prompt, options.maxTurns);
+    Session::PromptResult const result = session.Prompt(options.prompt, options.maxTurns);
+
+    if (!result.ok)
+    {
+        std::fprintf(stderr, "error: %s (%s after %u turns)\n", result.content.c_str(), result.errorCode.c_str(), result.turnsUsed);
+        return 1;
+    }
 
     return 0;
 }

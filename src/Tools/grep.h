@@ -130,5 +130,6 @@ constexpr ToolDefinition grep
     .name               = "grep",
     .description        = "Search for lines containing a pattern within a file or set of files",
     .requiredParameters = GrepToolParameters,
+    .optionalParameters = GrepToolOptionalParameters,
     .callTool           = GrepTool,
 };

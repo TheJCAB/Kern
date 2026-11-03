@@ -3,12 +3,13 @@
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 
-constexpr int64_t MaxLines = 100;
+constexpr std::int64_t ReadFileChunkMaxLines = 100;
 
 inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& context)
 {
@@ -29,15 +30,15 @@ inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& 
 
     if (startLine < 1)
     {
-        response["error"] = "start_line must be greater than 1";
+        response["error"] = "start_line must be at least 1";
         return response;
     }
 
     if (endLine < 1)
     {
-        response["error"] = "end_line must be greater than 1";
+        response["error"] = "end_line must be at least 1";
         return response;
-    }    
+    }
 
     if (endLine < startLine)
     {
@@ -47,12 +48,17 @@ inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& 
 
     try
     {
-        auto const cappedEndLine = std::min(INT64_MAX - MaxLines + 1, startLine - 1) + MaxLines - 1;
-        
+        std::int64_t const cappedEndLine = std::min(endLine, startLine + ReadFileChunkMaxLines - 1);
+
         FileChunk chunk = context.fs.ReadTextFileChunk(path, startLine, cappedEndLine);
+        bool const truncated = !chunk.eof && cappedEndLine < endLine;
 
         response["end_of_file"] = chunk.eof;
-        response["truncated"]   = !chunk.eof && static_cast<int64_t>(chunk.lines.size()) < endLine - startLine + 1;
+        response["truncated"]   = truncated;
+        if (truncated)
+        {
+            response["next_start_line"] = chunk.startLine + static_cast<std::int64_t>(chunk.lines.size());
+        }
 
         json::array_t lines;
 
@@ -90,9 +96,9 @@ constexpr ToolParameter ReadFileChunkToolOptionalParameters[] =
 constexpr ToolDefinition read_file_chunk
 {
     .name               = "read_file_chunk",
-    .description        = "Read some number of lines from a file between start_line and end_line. "
-                          "It is highly recommended to use a range of lines to avoid loading too-large files. "
-                          "The result may provide less lines than requested even if available, in which case it'll indicate it was \"truncated\"",
+    .description        = "Read at most 100 lines from a file per call, starting at start_line, regardless of the requested range. "
+                          "The response contains lines (an array of {line, text}), end_of_file, truncated, and - when truncated is true - "
+                          "next_start_line, which should be passed as the next start_line instead of computing ranges yourself.",
     .requiredParameters = ReadFileChunkToolRequiredParameters,
     .optionalParameters = ReadFileChunkToolOptionalParameters,
     .callTool           = ReadFileChunkTool,

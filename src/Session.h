@@ -5,6 +5,8 @@
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 
+#include <nlohmann/json.hpp>
+
 #include <memory>
 #include <span>
 #include <string>
@@ -14,6 +16,15 @@
 class Session
 {
 public:
+    struct PromptResult
+    {
+        bool        ok = false;
+        std::string errorCode;
+        std::string content;
+        unsigned    turnsUsed = 0;
+
+        operator nlohmann::json() const;
+    };
     struct Config
     {
         Endpoint                        endpointDescriptor;
@@ -31,7 +42,7 @@ public:
     Session(Session&&);
     Session& operator=(Session&&);
 
-    std::string Prompt(std::string_view prompt, unsigned maxTurns);
+    PromptResult Prompt(std::string_view prompt, unsigned maxTurns);
 
 private:
     struct Pimpl;

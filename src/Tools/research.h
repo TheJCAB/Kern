@@ -25,28 +25,41 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 {
     std::string const prompt = arguments.value("prompt", "");
 
-    json response{
-        { "prompt", prompt },
-    };
-
     if (prompt.empty())
     {
-        response["error"] = "prompt must not be empty";
-        return response;
+        return json{
+            { "ok"        , false                     },
+            { "status"    , "error"                   },
+            { "errorCode" , "empty_prompt"            },
+            { "turns_used", 0u                        },
+            { "summary"   , "prompt must not be empty" },
+        };
     }
 
     try
     {
         Session session = context.createNewSession(context, RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), Tools);
 
-        response["response"] = session.Prompt(prompt, 50);
+        Session::PromptResult const result = session.Prompt(prompt, SubagentMaxTurns);
+
+        return json{
+            { "ok"        , result.ok                                },
+            { "status"    , result.ok ? "complete" : "incomplete"    },
+            { "errorCode" , result.errorCode                         },
+            { "turns_used", result.turnsUsed                         },
+            { "summary"   , result.content                           },
+        };
     }
     catch (std::exception const& e)
     {
-        response["error"] = e.what();
+        return json{
+            { "ok"        , false        },
+            { "status"    , "error"      },
+            { "errorCode" , "exception"  },
+            { "turns_used", 0u           },
+            { "summary"   , e.what()     },
+        };
     }
-
-    return response;
 }
 
 constexpr ToolParameter RequiredParameters[] =

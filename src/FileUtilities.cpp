@@ -14,6 +14,9 @@
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <system_error>
+#include <utility>
 
 
 std::string RawReadTextFile(std::filesystem::path const& path)
@@ -83,12 +86,58 @@ void RawWriteTextFile(std::filesystem::path const& path, std::string_view const 
     {
         std::filesystem::create_directories(path.parent_path());
     }
-    std::ofstream output(path, std::ios::trunc);
-    if (!output)
+
+    // Write to a sibling temporary file and rename it over the destination once the
+    // content is safely on disk. If anything fails, the temporary file is removed and
+    // the destination is left untouched, so a failed write can never leave a
+    // truncated file or a stray temporary behind.
+    class TemporaryFileGuard
     {
-        throw std::runtime_error{ "error: could not write file" };
+    public:
+        explicit TemporaryFileGuard(std::filesystem::path temporaryPath) : m_path(std::move(temporaryPath)) {}
+        TemporaryFileGuard(TemporaryFileGuard const&) = delete;
+        TemporaryFileGuard& operator=(TemporaryFileGuard const&) = delete;
+        ~TemporaryFileGuard()
+        {
+            if (!m_committed)
+            {
+                std::error_code ignored;
+                std::filesystem::remove(m_path, ignored);
+            }
+        }
+        void Commit() { m_committed = true; }
+
+    private:
+        std::filesystem::path m_path;
+        bool                  m_committed = false;
+    };
+
+    std::filesystem::path temporaryPath = path;
+    temporaryPath += ".tmp";
+    TemporaryFileGuard guard{ temporaryPath };
+
+    {
+        std::ofstream output(temporaryPath, std::ios::trunc);
+        if (!output)
+        {
+            throw std::runtime_error{ "error: could not write file" };
+        }
+        output << content;
+        output.flush();
+        if (!output)
+        {
+            throw std::runtime_error{ "error: could not write file" };
+        }
     }
-    output << content;
+
+    std::error_code renameError;
+    std::filesystem::rename(temporaryPath, path, renameError);
+    if (renameError)
+    {
+        throw std::runtime_error{ "error: could not write file: " + renameError.message() };
+    }
+
+    guard.Commit();
 }
 
 std::filesystem::path GetExecutableDirectory()

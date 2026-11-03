@@ -3,7 +3,7 @@
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
 
-inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& context) noexcept
+inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& context)
 {
     auto const path    = arguments.value("path"   , "");
     auto const content = arguments.value("content", "");

@@ -96,6 +96,9 @@ int main()
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","apiKeyEnv":"sk-123abc"}}})"); }), "key in place of variable name");
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","bogus":1}}})"); }), "unknown key");
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","allowInsecure":"yes"}}})"); }), "allowInsecure must be boolean");
+        ExpectEqual(ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":4096}}})")[0].maxTokens, 4096u, "maxTokens parsed");
+        Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":0}}})"); }), "maxTokens must be positive");
+        Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":"big"}}})"); }), "maxTokens must be a number");
     }
 
     std::println("Test FindService");
@@ -112,18 +115,17 @@ int main()
 
     std::println("Test ResolveService");
     {
-        ServiceDefinition const remote{ .name = "remote", .endpoint = "https://api.example.com/v1/chat/completions", .apiKeyEnv = "REMOTE_KEY", .model = {}, .allowInsecure = false };
-
+        ServiceDefinition const remote{ .name = "remote", .endpoint = "https://api.example.com/v1/chat/completions", .apiKeyEnv = "REMOTE_KEY",         .model = {}, .allowInsecure = false, .maxTokens = 0 };
         auto const withKey = ResolveService(remote, FakeEnvironment({ { "REMOTE_KEY", " secret\n" } }));
         ExpectEqual(withKey.apiKey, "secret", "key from environment");
         Expect(withKey.secure, "https");
 
         Expect(Throws([&] { ResolveService(remote, FakeEnvironment({})); }), "missing key is an error");
 
-        ServiceDefinition const local{ .name = "local", .endpoint = "http://127.0.0.1:8080/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false };
+        ServiceDefinition const local{ .name = "local", .endpoint = "http://127.0.0.1:8080/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 };
         Expect(ResolveService(local, FakeEnvironment({})).apiKey.empty(), "keyless service needs no key");
 
-        ServiceDefinition lan{ .name = "lan", .endpoint = "http://192.168.1.5:8080/v1/chat/completions", .apiKeyEnv = "LAN_KEY", .model = {}, .allowInsecure = false };
+        ServiceDefinition lan{ .name = "lan", .endpoint = "http://192.168.1.5:8080/v1/chat/completions", .apiKeyEnv = "LAN_KEY", .model = {}, .allowInsecure = false, .maxTokens = 0 };
         Expect(Throws([&] { ResolveService(lan, FakeEnvironment({ { "LAN_KEY", "k" } })); }), "remote http refused by default");
         lan.allowInsecure = true;
         ExpectEqual(ResolveService(lan, FakeEnvironment({ { "LAN_KEY", "k" } })).apiKey, "k", "remote http allowed when declared");

@@ -91,6 +91,7 @@ Add your own in `~/.config/Kern/services.json` (Linux; `$XDG_CONFIG_HOME/Kern/se
 | `apiKeyEnv` | no | Name of the environment variable holding this service's API key. |
 | `model` | no | Default model for this service (the default is `gemma4`). |
 | `allowInsecure` | no | Permits plain `http://` to a host that isn't this machine. |
+| `maxTokens` | no | Caps the output of each response (sent as `max_tokens`). Some services reserve credits for the model's maximum output on every request, so a lower cap can avoid "insufficient balance" or rate-limit errors. Unset by default. |
 
 ### Providing the API key
 
@@ -130,5 +131,5 @@ Use `--log-level LEVEL` to get diagnostics on stderr (so they don't mix with the
 - `debug`: each request (URL, size, model, message count), the HTTP status, timing, size of the response and the finish reason. It also saves the complete raw response of every turn as `logs/<id>_<turn>_response_raw.txt`, next to the `..._request.json` that is always written. The `logs` directory is next to the `kern` executable.
 - `trace`: additionally prints every server-sent event as it arrives.
 
-If the service answers with an HTTP error (wrong key, unknown model, rate limit...), Kern stops and shows the status and the start of the body. API keys are never logged: headers are never printed, and the key is also scrubbed from response bodies. The saved request and response files contain your conversation, so treat them as private.
+If the service answers with an HTTP error (wrong key, unknown model...), Kern stops and shows the status and the start of the body. The exceptions are HTTP 429 (rate limit) and 503 (unavailable): Kern waits and retries up to 5 times (5, 10, 20, 40, 60 s, or longer if the server sends `Retry-After`) and logs a warning each time. API keys are never logged: headers are never printed, and the key is also scrubbed from response bodies. The saved request and response files contain your conversation, so treat them as private.
 

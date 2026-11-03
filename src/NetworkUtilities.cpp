@@ -54,10 +54,15 @@ HttpResult HttpPost(Endpoint const& endpoint, std::string_view const payloadType
     request.body = std::string{ payload };
 
     int responseStatus = 0;
+    int retryAfterSeconds = 0;
     // Only response headers are logged, never request headers (which carry the API key).
     request.response_handler = [&](httplib::Response const& response)
     {
         responseStatus = response.status;
+        if (auto const retryAfter = response.get_header_value("Retry-After"); !retryAfter.empty() && retryAfter.size() <= 4 && retryAfter.find_first_not_of("0123456789") == std::string::npos)
+        {
+            retryAfterSeconds = std::stoi(retryAfter);
+        }
         auto const encoding = response.get_header_value("Content-Encoding");
         if (!encoding.empty() && encoding != "identity")
         {
@@ -137,6 +142,7 @@ HttpResult HttpPost(Endpoint const& endpoint, std::string_view const payloadType
 
     HttpResult result;
     result.status = responseStatus;
+    result.retryAfterSeconds = retryAfterSeconds;
     if (res)
     {
         result.status = res->status;

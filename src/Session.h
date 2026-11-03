@@ -21,6 +21,7 @@ public:
         std::string                     systemPrompt;
         std::string                     modelName;
         std::span<ToolDefinition const> tools;
+        unsigned                        maxTokens = 0; // 0 = don't send a limit
     };
     Session(Config);
     ~Session();

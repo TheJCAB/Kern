@@ -23,13 +23,32 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <chrono>
 #include <type_traits>
 #include <vector>
 
 
 HttpResult HttpPost(Endpoint const& endpoint, json const& payload, std::function<void(std::string_view)> const& sseCallback)
 {
-    return HttpPost(endpoint, "application/json", payload.dump(), sseCallback);
+    // Rate limits (429) and temporary unavailability (503) are transient; non-2xx bodies carry no SSE events,
+    // so repeating the request can't duplicate any output already handed to the callback.
+    constexpr int maxAttempts = 6;
+    std::string const body = payload.dump();
+    for (int attempt = 1;; ++attempt)
+    {
+        HttpResult result = HttpPost(endpoint, "application/json", body, sseCallback);
+        if ((result.status != 429 && result.status != 503) || attempt >= maxAttempts)
+        {
+            return result;
+        }
+
+        int const backoffSeconds = std::min(5 << (attempt - 1), 60); // 5, 10, 20, 40, 60
+        int const waitSeconds = std::clamp(result.retryAfterSeconds, backoffSeconds, 120);
+        Log(LogLevel::warning, "the service answered HTTP {} (attempt {} of {}); retrying in {} s. Response: {}",
+            result.status, attempt, maxAttempts, waitSeconds, result.body.substr(0, 300));
+        std::this_thread::sleep_for(std::chrono::seconds(waitSeconds));
+    }
 }
 
 struct Session::Pimpl
@@ -103,16 +122,20 @@ struct Session::Pimpl
             messages.push_back(std::move(messageJson));
         }
 
-        return json{
+        json result{
             { "model", m_modelName },
             { "tools", BuildPayloadToolDefinitions(m_tools) },
             { "stream", !IsOllamaEndpoint() },
-            //{ "max_tokens", 1024 },
             //{ "temperature", 0.7 },
             //{ "top_p", 1.0 },
             //{ "n", 1 },
             { "messages", std::move(messages) },
         };
+        if (m_maxTokens != 0)
+        {
+            result["max_tokens"] = m_maxTokens;
+        }
+        return result;
     }
 
     enum class ResponseFinishReason
@@ -335,6 +358,7 @@ struct Session::Pimpl
         , m_toolContext       { std::move(config.toolContext)            }
         , m_modelName         { std::move(config.modelName)              }
         , m_tools             { config.tools.begin(), config.tools.end() }
+        , m_maxTokens         { config.maxTokens                         }
     {
         m_conversationHistory.push_back({ .role = "system", .content = std::move(config.systemPrompt) });
 
@@ -634,6 +658,7 @@ struct Session::Pimpl
     ToolsRuntimeContext              m_toolContext;
     std::string                      m_modelName;
     std::vector<ToolDefinition>      m_tools;
+    unsigned                         m_maxTokens = 0;
 
     std::vector<ConversationMessage> m_conversationHistory;
     LogFileState                     m_log;

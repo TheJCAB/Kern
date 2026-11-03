@@ -51,6 +51,7 @@ struct SessionSettings
     Endpoint    endpoint;
     std::string model;
     std::string workspaceInstructions;
+    unsigned    maxTokens = 0;
 };
 
 std::string LoadWorkspaceInstructions()
@@ -88,6 +89,7 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
         ServiceDefinition const& service = FindService(services, options.serviceName.empty() ? DefaultServiceName : options.serviceName);
         settings.endpoint = ResolveService(service, DefaultCredentialSources());
         settings.model    = service.model;
+        settings.maxTokens = service.maxTokens;
     }
 
     if (settings.model.empty())
@@ -121,6 +123,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
                 .systemPrompt       = std::string(systemPrompt) + settings.workspaceInstructions,
                 .modelName          = settings.model,
                 .tools              = tools,
+                .maxTokens          = settings.maxTokens,
             }};
         },
         .fs{ std::filesystem::current_path() },
@@ -153,6 +156,7 @@ int Run(CommandLineOptions const& options)
         .systemPrompt       = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.workspaceInstructions,
         .modelName          = settings.model,
         .tools              = MainTools,
+        .maxTokens          = settings.maxTokens,
     }};
 
     // The response is streamed to the console by Session::Prompt, so there is nothing to return.

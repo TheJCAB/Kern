@@ -38,8 +38,8 @@ std::string ReadString(json const& object, std::string const& service, char cons
 std::vector<ServiceDefinition> BuiltInServices()
 {
     return {
-        { .name = "llama.cpp", .endpoint = "http://127.0.0.1:8080/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false },
-        { .name = "ollama",    .endpoint = "http://127.0.0.1:11434/api/chat",           .apiKeyEnv = {}, .model = {}, .allowInsecure = false },
+        { .name = "llama.cpp", .endpoint = "http://127.0.0.1:8080/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 },
+        { .name = "ollama",    .endpoint = "http://127.0.0.1:11434/api/chat",           .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 },
     };
 }
 
@@ -97,7 +97,7 @@ std::vector<ServiceDefinition> ParseServicesConfig(std::string_view const jsonTe
             throw std::runtime_error(std::format("Service '{}' must be an object", name));
         }
 
-        ServiceDefinition service{ .name = name, .endpoint = {}, .apiKeyEnv = {}, .model = {}, .allowInsecure = false };
+        ServiceDefinition service{ .name = name, .endpoint = {}, .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 };
         for (auto const& [key, value] : entry.items())
         {
             if (key == "apiKey")
@@ -105,7 +105,7 @@ std::vector<ServiceDefinition> ParseServicesConfig(std::string_view const jsonTe
                 // Catch the most dangerous mistake explicitly.
                 throw std::runtime_error(std::format("Service '{}': API keys must not be stored in this file; use 'apiKeyEnv' to name an environment variable", name));
             }
-            if (key != "endpoint" && key != "apiKeyEnv" && key != "model" && key != "allowInsecure")
+            if (key != "endpoint" && key != "apiKeyEnv" && key != "model" && key != "allowInsecure" && key != "maxTokens")
             {
                 throw std::runtime_error(std::format("Service '{}': unknown key '{}'", name, key));
             }
@@ -130,6 +130,15 @@ std::vector<ServiceDefinition> ParseServicesConfig(std::string_view const jsonTe
                 throw std::runtime_error(std::format("Service '{}': 'allowInsecure' must be true or false", name));
             }
             service.allowInsecure = it->get<bool>();
+        }
+
+        if (auto const it = entry.find("maxTokens"); it != entry.end())
+        {
+            if (!it->is_number_unsigned() || it->get<std::uint64_t>() == 0 || it->get<std::uint64_t>() > 10'000'000)
+            {
+                throw std::runtime_error(std::format("Service '{}': 'maxTokens' must be a positive integer", name));
+            }
+            service.maxTokens = it->get<unsigned>();
         }
 
         result.push_back(std::move(service));

@@ -98,11 +98,11 @@ struct Session::Pimpl
         json::array_t toolCalls {};
     };
 
-    json BuildPayload()
+    json BuildPayload(std::vector<ConversationMessage> const& transientMessages = {})
     {
         json::array_t messages{};
 
-        for (auto& message : m_conversationHistory)
+        auto appendMessage = [&](ConversationMessage const& message)
         {
             json messageJson = {
                 { "role"   , message.role    },
@@ -120,6 +120,15 @@ struct Session::Pimpl
             }
 
             messages.push_back(std::move(messageJson));
+        };
+
+        for (auto const& message : m_conversationHistory)
+        {
+            appendMessage(message);
+        }
+        for (auto const& message : transientMessages)
+        {
+            appendMessage(message);
         }
 
         json result{
@@ -362,12 +371,16 @@ struct Session::Pimpl
 
         m_conversationHistory.push_back({ .role{ "user" }, .content{ prompt } });
 
+        // Holds the cut-off output plus a "hurry up" nudge for exactly one request; never stored in the history.
+        std::vector<ConversationMessage> hurryMessages;
         for (unsigned turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
         {
             std::println("===============================\nTurn {} [{}]", turn, m_log.id);
+            bool const isHurryRetry = !hurryMessages.empty();
             try
             {
-                json const payload = BuildPayload();
+                json const payload = BuildPayload(hurryMessages);
+                hurryMessages.clear();
                 WriteLogFile(m_log, "request", payload.dump(2));
                 Log(LogLevel::debug, "turn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     turn, m_conversationHistory.size(), m_modelName, m_log.id, m_log.sequence);
@@ -622,6 +635,42 @@ struct Session::Pimpl
                             });
                         }
                     }
+                }
+                else if (modelResponse.reason == ResponseFinishReason::length && !isHurryRetry)
+                {
+                    // Token cap hit mid-thought: for one request only, show the model its partial output and ask it to wrap up.
+                    // The replacement response is what ends up in the history.
+                    std::println("Response hit the token limit; asking the model to wrap up");
+                    std::string partial = modelResponse.content;
+                    if (!modelResponse.reasoning.empty())
+                    {
+                        partial = "[Reasoning so far, cut off by the token limit]\n" + modelResponse.reasoning
+                                + (partial.empty() ? "" : "\n\n[Partial reply]\n" + partial);
+                    }
+                    if (partial.empty())
+                    {
+                        partial = "(no output before the token limit was reached)";
+                    }
+                    hurryMessages.push_back({
+                        .role    = "assistant",
+                        .content = std::move(partial),
+                    });
+                    hurryMessages.push_back({
+                        .role    = "user",
+                        .content = "Your previous response was cut off because it reached the token limit. "
+                                   "Stop deliberating: using what you've worked out so far, either make the next tool call "
+                                   "or give your final answer now, concisely.",
+                    });
+                }
+                else if (modelResponse.reason == ResponseFinishReason::length)
+                {
+                    std::println("Response hit the token limit again; giving up");
+                    return {
+                        .ok        = false,
+                        .errorCode = "length",
+                        .content   = "The model repeatedly hit the token limit",
+                        .turnsUsed = turn + 1,
+                    };
                 }
                 else
                 {

@@ -140,6 +140,10 @@ HttpResult HttpPost(Endpoint const& endpoint, std::string_view const payloadType
 
     auto res = cli.send(request);
 
+    // Unnecessary, but... Runware keeps insisting that all our requests are left pending, somehow.
+    // It's unsure whether this would help with this problem, but it's worth a shot.
+    cli.stop();
+
     HttpResult result;
     result.status = responseStatus;
     result.retryAfterSeconds = retryAfterSeconds;

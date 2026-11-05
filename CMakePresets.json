@@ -77,6 +77,42 @@
                 "lhs": "${hostSystemName}",
                 "rhs": "Linux"
             }
+        },
+        {
+            "name": "MSVC-Kern-Test",
+            "displayName": "Kern-Test",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/Kern-Test",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl",
+                "CMAKE_CXX_COMPILER": "cl",
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "Clang-Kern-Test",
+            "displayName": "Kern-Test",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/Kern-Test",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_C_FLAGS": "-stdlib=libc++",
+                "CMAKE_CXX_FLAGS": "-stdlib=libc++",
+                "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -fuse-ld=lld",
+                "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++ -fuse-ld=lld",
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
         }
     ]
 }

@@ -1,0 +1,8 @@
+{
+    "build": {
+        "commands": [
+            { "command": "cmake", "arguments": [ "--preset", "Clang-Kern-Test"  ], "timeoutSeconds": 600 },
+            { "command": "cmake", "arguments": [ "--build", "./build/Kern-Test" ], "timeoutSeconds": 600 }
+        ]
+    }
+}

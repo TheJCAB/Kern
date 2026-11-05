@@ -1,3 +1,4 @@
+#include "BuildCommand.h"
 #include "CommandLine.h"
 #include "Credentials.h"
 #include "FileUtilities.h"
@@ -16,6 +17,7 @@
 #include <exception>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <print>
 #include <span>
 #include <string>
@@ -52,6 +54,9 @@ struct SessionSettings
     std::string model;
     std::string workspaceInstructions;
     unsigned    maxTokens = 0;
+
+    // Empty unless the owners of the workspace declared how to build it.
+    std::optional<BuildCommands> buildCommands;
 };
 
 std::string LoadWorkspaceInstructions()
@@ -107,6 +112,10 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
 
     settings.workspaceInstructions = LoadWorkspaceInstructions();
 
+    // A workspace that declares no build simply has no build tool at all, while one that
+    // declares an invalid build is fatal: it must never be silently ignored.
+    settings.buildCommands = LoadBuildConfiguration(std::filesystem::current_path());
+
     return settings;
 }
 
@@ -114,6 +123,15 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
 // so no session ever refers back to this function's locals.
 ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
 {
+    // Read out before `settings` is moved into the factory lambda below.
+    std::optional<BuildCommands> const buildCommands = settings.buildCommands;
+
+    ValidatedFileSystem fs{ std::filesystem::current_path() };
+
+    // Kern may read the build declaration but the tool list only reads it, and the guarded file
+    // system must refuse any write to it: only the owners of the workspace may change it.
+    fs.AddProtectedPath(std::filesystem::current_path() / BuildConfigurationFileName);
+
     return ToolsRuntimeContext{
         .createNewSession = [settings = std::move(settings)](ToolsRuntimeContext const& context, std::string_view systemPrompt, std::span<ToolDefinition const> tools)
         {
@@ -126,7 +144,8 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
                 .maxTokens          = settings.maxTokens,
             }};
         },
-        .fs{ std::filesystem::current_path() },
+        .fs            = std::move(fs),
+        .buildCommands = buildCommands,
     };
 }
 

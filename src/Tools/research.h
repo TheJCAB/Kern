@@ -7,13 +7,17 @@
 #include "glob.h"
 #include "grep.h"
 #include "read_file_chunk.h"
+#include "build.h"
 
+#include <iterator>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Tools::research
 {
-
+// The tools that the researcher may always use. `build` is added on top of this list only when
+// the workspace declares a build (see ToolFunction below); the orchestrator never gets `build`.
 constexpr ToolDefinition Tools[] =
 {
     glob,
@@ -38,7 +42,15 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 
     try
     {
-        Session session = context.createNewSession(context, RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), Tools);
+        // `build` is offered to the researcher only when the owners of the workspace have declared
+        // how to build it. It is diagnostic only, because the researcher cannot edit files.
+        std::vector<ToolDefinition> tools{ std::begin(Tools), std::end(Tools) };
+        if (context.buildCommands.has_value())
+        {
+            tools.push_back(build);
+        }
+
+        Session session = context.createNewSession(context, RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), tools);
 
         Session::PromptResult const result = session.Prompt(prompt, SubagentMaxTurns);
 
@@ -72,6 +84,7 @@ constexpr ToolDefinition Definition
     .name               = "research",
     .description        = "Delegate a research task to a research subagent. "
                           "This subagent may perform tasks like globbing, grepping, and reading files to gain knowledge about the workspace. "
+                          "When the workspace declares a build, it may also run the fixed build command to report pre-existing build errors. "
                           "When the task is complete, the subagent will report the result.",
     .requiredParameters = RequiredParameters,
     .optionalParameters = {},

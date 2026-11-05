@@ -29,6 +29,7 @@ CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
 CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0 OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON")
 
 add_executable(kern
+    src/BuildCommand.cpp        src/BuildCommand.h
     src/Credentials.cpp         src/Credentials.h
     src/CommandLine.cpp         src/CommandLine.h
     src/Endpoint.cpp            src/Endpoint.h
@@ -36,12 +37,14 @@ add_executable(kern
     src/FileValidation.cpp      src/FileValidation.h
     src/Logging.cpp             src/Logging.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
+    src/Process.cpp             src/Process.h
     src/Services.cpp            src/Services.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
     src/XmlToolCallParser.cpp   src/XmlToolCallParser.h
 
     src/Session.cpp         src/Session.h
+    src/Tools/build.h
     src/Tools/edit_file_lines.h
     src/Tools/glob.h
     src/Tools/grep.h

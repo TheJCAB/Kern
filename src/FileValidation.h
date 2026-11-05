@@ -17,7 +17,13 @@ public:
     
     void AddRootPath(std::filesystem::path const&);
     
+    // Protected paths are readable but never writable: they are how the owners of a workspace
+    // declare files that the agent may not change, such as the description of how to build.
+    void AddProtectedPath(std::filesystem::path const&);
+    
     [[nodiscard]] std::filesystem::path ValidatePath(std::filesystem::path const&) const;
+
+    [[nodiscard]] std::filesystem::path ValidateWritablePath(std::filesystem::path const&) const;
 
     std::string ReadTextFile(std::filesystem::path const&) const;
     
@@ -27,4 +33,5 @@ public:
 
 private:
     std::vector<std::filesystem::path> m_rootPaths;
+    std::vector<std::filesystem::path> m_protectedPaths;
 };

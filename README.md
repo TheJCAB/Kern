@@ -7,6 +7,7 @@ This workspace contains a minimal C++20 agent harness that can call a local llam
 - read_file_chunk(path, start_line, end_line)
 - edit_file_lines(path, operation, start_line, ...)
 - write_file(path, content)
+- build()
 
 It also includes two specialized subagent tools: researcher and implementer. Each agent (the main orchestrator and the subagents) receives a subset of the tools as required by their mandate.
 
@@ -48,6 +49,50 @@ Then run the harness:
 ```
 
 The harness will send the request to the model, interpret tool calls, invoke the model with the tool results and then continue the loop until the number of turns is exhausted or the model declares the task complete.
+
+## Letting Kern build your project
+
+Kern has no shell and can never run an arbitrary command. The only way it can execute anything is an optional `build` tool, and that tool only exists if the owners of the workspace declare it in a `Kern.build.json` file at the root of the workspace:
+
+```json
+{
+    "build": {
+        "command": "cmake",
+        "arguments": ["--build", "--preset", "Clang-Release"],
+        "workingDirectory": ".",
+        "timeoutSeconds": 600
+    }
+}
+```
+
+A declaration may instead list several commands under `commands` when the build needs more than one step, for example configuring before building so that newly added source files or targets are picked up:
+
+```json
+{
+    "build": {
+        "commands": [
+            { "command": "cmake", "arguments": ["--preset", "Clang-Release"] },
+            { "command": "cmake", "arguments": ["--build", "--preset", "Clang-Release"] }
+        ],
+        "workingDirectory": ".",
+        "timeoutSeconds": 600
+    }
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `command` | yes | Executable to run, looked up in `PATH`. It is started directly, never through a shell, so pipes, redirection and `&&` are not possible. |
+| `commands` | no | Alternative to `command`: an array of command objects that run one after the other. Each object accepts the same `command` (required), `arguments`, `workingDirectory` and `timeoutSeconds` keys, and each has its own default timeout. |
+| `arguments` | no | Array of strings passed to `command` verbatim. |
+| `workingDirectory` | no | Directory to run in: relative to the workspace root, or absolute inside it. Defaults to the workspace root. |
+| `timeoutSeconds` | no | Kills the build after this many seconds (1 to 3600, default 600). |
+
+A declaration uses either a single `command` or a `commands` array, never both. `arguments`, `workingDirectory` and `timeoutSeconds` at the top level of `build` still apply to a single `command` declaration; inside a `commands` array each command object carries its own.
+
+The tool is offered to both the `implement` and the `research` subagents when the workspace declares a build, but never to the orchestrating agent, and it takes no arguments at all: the model chooses *when* to build but never *what* to run, so nothing it writes can reach a command line. The commands of the declaration run in order, the build stops at the first command that fails, and the output of every command is combined into one report. The researcher can only use it to report pre-existing build errors, because it cannot edit files. The model gets back the combined stdout and stderr, the exit code and whether the build timed out; when a declaration lists several commands it also reports the exit code of the failing command and which step failed. Very long output is truncated to its first 8 KiB and its last 24 KiB.
+
+`Kern.build.json` is read-only to Kern: every editing tool refuses to write to that path, because only the owners of a workspace may describe how to build it. Without the file there is no `build` tool at all; with an invalid one Kern refuses to start instead of quietly falling back to something else.
 
 ## Services and API keys
 
@@ -132,4 +177,3 @@ Use `--log-level LEVEL` to get diagnostics on stderr (so they don't mix with the
 - `trace`: additionally prints every server-sent event as it arrives.
 
 If the service answers with an HTTP error (wrong key, unknown model...), Kern stops and shows the status and the start of the body. The exceptions are HTTP 429 (rate limit) and 503 (unavailable): Kern waits and retries up to 5 times (5, 10, 20, 40, 60 s, or longer if the server sends `Retry-After`) and logs a warning each time. API keys are never logged: headers are never printed, and the key is also scrubbed from response bodies. The saved request and response files contain your conversation, so treat them as private.
-

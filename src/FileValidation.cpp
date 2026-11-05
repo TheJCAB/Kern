@@ -36,6 +36,28 @@ void ValidatedFileSystem::AddRootPath(std::filesystem::path const& path)
     throw std::runtime_error("Security Error: Access to file outside of root path is denied: " + path.string());
 }
 
+void ValidatedFileSystem::AddProtectedPath(std::filesystem::path const& path)
+{
+    // Unlike a root path this file may not exist yet, so it is normalised without resolving it.
+    m_protectedPaths.push_back(std::filesystem::absolute(path).lexically_normal());
+}
+
+// A path that is inside a root path is readable, but only some of them are writable.
+[[nodiscard]] std::filesystem::path ValidatedFileSystem::ValidateWritablePath(std::filesystem::path const& path) const
+{
+    std::filesystem::path const absolutePath = ValidatePath(path);
+
+    for (auto const& protectedPath : m_protectedPaths)
+    {
+        if (protectedPath == absolutePath)
+        {
+            throw std::runtime_error("Security Error: " + path.string() + " is declared read-only by the owners of this workspace and cannot be modified");
+        }
+    }
+
+    return absolutePath;
+}
+
 std::string ValidatedFileSystem::ReadTextFile(std::filesystem::path const& path) const
 {
     return RawReadTextFile(ValidatePath(path));
@@ -48,5 +70,5 @@ FileChunk ValidatedFileSystem::ReadTextFileChunk(std::filesystem::path const& pa
 
 void ValidatedFileSystem::WriteTextFile(std::filesystem::path const& path, std::string_view content) const
 {
-    return RawWriteTextFile(ValidatePath(path), content);
+    return RawWriteTextFile(ValidateWritablePath(path), content);
 }

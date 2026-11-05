@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BuildCommand.h"
 #include "FileValidation.h"
 #include "JsonUtilities.h"
 
@@ -47,6 +48,10 @@ struct ToolsRuntimeContext
 {
     std::function<CreateNewSessionFunction> createNewSession;
     ValidatedFileSystem                     fs;
+
+    // The build the workspace owners declared, if any. Tools that are only available when a
+    // workspace declares a build must test this member before using it.
+    std::optional<BuildCommands>            buildCommands;
 };
 
 // At runtime, running a tool is done by calling a function with this signature.

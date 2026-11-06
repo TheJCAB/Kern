@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -31,7 +32,15 @@ struct IntegerToolParameter : ToolParameterBase
     std::optional<std::int64_t> maximum{};
 };
 
-using ToolParameter = std::variant<StringToolParameter, IntegerToolParameter>;
+struct BoolToolParameter : ToolParameterBase
+{
+};
+
+struct StringArrayToolParameter : ToolParameterBase
+{
+};
+
+using ToolParameter = std::variant<StringToolParameter, IntegerToolParameter, BoolToolParameter, StringArrayToolParameter>;
 
 // The turn budget handed to every subagent session started by `research` or `implement`.
 constexpr unsigned SubagentMaxTurns = 50;
@@ -52,6 +61,9 @@ struct ToolsRuntimeContext
     // The build the workspace owners declared, if any. Tools that are only available when a
     // workspace declares a build must test this member before using it.
     std::optional<BuildCommands>            buildCommands;
+
+    // Bare directory names that the search tools ignore below their root_dir, never at it.
+    std::vector<std::string>                ignoredDirectories {};
 };
 
 // At runtime, running a tool is done by calling a function with this signature.
@@ -62,6 +74,17 @@ struct ToolsRuntimeContext
 //   or an error message if the parameters are found to be incorrect.
 // It may throw an exception if the tool fails even though the call was correctly formed.
 using ToolCallable = json(json const& arguments, ToolsRuntimeContext const&);
+
+// A tool argument was present but unusable; tools report this as errorCode "invalid_argument".
+struct ToolArgumentError : std::runtime_error
+{
+    using std::runtime_error::runtime_error;
+};
+
+// Reads the optional 'exclude' argument: a JSON array of bare directory names.
+// A missing or null argument yields an empty vector. A non-array value, a non-string entry,
+// or an entry containing '/' or '\\' or equal to "." or ".." throws ToolArgumentError naming the entry.
+std::vector<std::string> ParseExcludeArgument(json const& arguments);
 
 struct ToolDefinition
 {

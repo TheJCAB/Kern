@@ -10,6 +10,50 @@ namespace {
     template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;  
 }
 
+std::vector<std::string> ParseExcludeArgument(json const& arguments)
+{
+    auto const it = arguments.find("exclude");
+    if (it == arguments.end() || it->is_null())
+    {
+        return {};
+    }
+
+    if (!it->is_array())
+    {
+        throw ToolArgumentError("parameter 'exclude' must be an array of directory names");
+    }
+
+    std::vector<std::string> exclude;
+    exclude.reserve(it->size());
+
+    for (std::size_t index = 0; index < it->size(); ++index)
+    {
+        json const& element = (*it)[index];
+        if (!element.is_string())
+        {
+            throw ToolArgumentError("parameter 'exclude' entry at index " + std::to_string(index) + " must be a string");
+        }
+
+        std::string const name = element.get<std::string>();
+        if (name.empty())
+        {
+            throw ToolArgumentError("parameter 'exclude' contains an empty directory name");
+        }
+        if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos)
+        {
+            throw ToolArgumentError("parameter 'exclude' entry '" + name + "' contains a path separator; each entry must be a bare directory name");
+        }
+        if (name == "." || name == "..")
+        {
+            throw ToolArgumentError("parameter 'exclude' entry '" + name + "' is not a directory name");
+        }
+
+        exclude.push_back(name);
+    }
+
+    return exclude;
+}
+
 json BuildPayloadToolDefinitions(std::span<ToolDefinition const> const tools)
 {
     auto result = json::array();
@@ -61,6 +105,15 @@ json BuildPayloadToolDefinitions(std::span<ToolDefinition const> const tools)
                             {
                                 parameterJson["maximum"] = *parameter.maximum;
                             }
+                        },
+                        [&](BoolToolParameter const& parameter)
+                        {
+                            addParameterBase(parameter, "boolean");
+                        },
+                        [&](StringArrayToolParameter const& parameter)
+                        {
+                            json& parameterJson = addParameterBase(parameter, "array");
+                            parameterJson["items"] = { { "type", "string" } };
                         },
                     },
                     param

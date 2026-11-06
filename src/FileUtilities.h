@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
+#include <map>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,4 +36,36 @@ struct GlobResult
     friend auto operator<=>(GlobResult const& a, GlobResult const& b) noexcept { return std::tie(a.name, a.type) <=> std::tie(b.name, b.type); }
 };
 
-std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::string_view pattern);
+// Exceptions distinguish the failure modes the tools report as errorCode values.
+struct GlobPatternError : std::runtime_error
+{
+    using std::runtime_error::runtime_error;
+};
+
+// The pattern uses a construct outside the supported language ('{' or '[').
+struct UnsupportedGlobPatternError : GlobPatternError
+{
+    using GlobPatternError::GlobPatternError;
+};
+
+// The pattern is malformed (root name, or a ".." segment).
+struct InvalidGlobPatternError : GlobPatternError
+{
+    using GlobPatternError::GlobPatternError;
+};
+
+struct GlobOptions
+{
+    std::vector<std::string> ignoredDirectories {};  // Bare directory names, applied to entries below rootDir, never to rootDir itself.
+    std::size_t              maxResults = 0;         // 0 means unlimited.
+};
+
+struct GlobMatches
+{
+    std::vector<GlobResult>            matches            {};  // Capped to GlobOptions::maxResults.
+    std::size_t                        totalMatches       = 0;  // Number of distinct matches before capping.
+    std::vector<std::string>           ignoredDirectories {};  // The set that was actually applied, deduplicated, in first-seen order.
+    std::map<std::string, std::size_t> countsByTopLevelDirectory {};  // Every match before capping, keyed by its first path segment below rootDir ("." for entries directly in rootDir).
+};
+
+GlobMatches Glob(std::filesystem::path const& rootDir, std::string_view pattern, GlobOptions const& options = {});

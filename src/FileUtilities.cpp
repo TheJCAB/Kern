@@ -11,6 +11,7 @@
 #include <functional>
 #include <generator>
 #include <ranges>
+#include <span>
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
@@ -221,8 +222,20 @@ std::filesystem::path::string_type operator""_path(char const* string, size_t si
     return result.native();
 }
 
+bool IsIgnoredDirectory(std::filesystem::path const& entryName, std::span<std::string const> ignoredDirectories)
+{
+    for (std::string const& ignored : ignoredDirectories)
+    {
+        if (entryName == std::filesystem::path{ ignored })
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Recursive generator.
-std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::ranges::input_range auto const& pattern, bool recurseAll = false)
+std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::ranges::input_range auto const& pattern, bool recurseAll = false, std::span<std::string const> ignoredDirectories = {})
 {
     std::error_code error;
 
@@ -243,7 +256,7 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
         {
             // "**" as the end of the search implies a "/*"
             std::filesystem::path::string_type const star = "*"_path;
-            co_yield std::ranges::elements_of(GlobInternal(rootDir, std::ranges::subrange{ &star, &star + 1 }, true));
+            co_yield std::ranges::elements_of(GlobInternal(rootDir, std::ranges::subrange{ &star, &star + 1 }, true, ignoredDirectories));
         }
         co_return;
     }
@@ -253,12 +266,19 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
     auto const& segment = *segmentIt;
     if (segment == ".."_path)
     {
-        throw std::runtime_error("error: malformed pattern");
+        throw InvalidGlobPatternError("parameter 'pattern' contains a '..' segment, which is not supported");
     }
 
     for (auto const& entry : std::filesystem::directory_iterator(rootDir, std::filesystem::directory_options::skip_permission_denied, error))
     {
         auto const entryName = entry.path().filename();
+
+        // The ignore set applies to entries below rootDir only: this loop never sees rootDir itself.
+        if (entry.is_directory(error) && IsIgnoredDirectory(entryName, ignoredDirectories))
+        {
+            continue;
+        }
+
         if (MatchGlobSegment(segment, entryName))
         {
             if (nextSegmentIt == segmentEndIt)
@@ -273,7 +293,7 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
             {
                 // Note: even if recurseAll is set, we've now matched a newer segment.
                 // So we must consider the recursion "spent" and not continue the recursion here.
-                co_yield std::ranges::elements_of(GlobInternal(rootDir / entryName, std::ranges::subrange{ nextSegmentIt, segmentEndIt }, false));
+                co_yield std::ranges::elements_of(GlobInternal(rootDir / entryName, std::ranges::subrange{ nextSegmentIt, segmentEndIt }, false, ignoredDirectories));
             }
         }
 
@@ -282,12 +302,12 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
             // recurseAll means we search in every subdirectory, whether it matched or not.
             // Note: we swallow this directory into the recurseAll pattern and keep searching,
             // which makes this recursion different from when we recursed a match above.
-            co_yield std::ranges::elements_of(GlobInternal(rootDir / entryName, std::ranges::subrange{ segmentIt, segmentEndIt }, true));
+            co_yield std::ranges::elements_of(GlobInternal(rootDir / entryName, std::ranges::subrange{ segmentIt, segmentEndIt }, true, ignoredDirectories));
         }
     }
 }
 
-std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::string_view const pattern)
+GlobMatches Glob(std::filesystem::path const& rootDir, std::string_view const pattern, GlobOptions const& options)
 {
     std::filesystem::path normalizedRootDir = rootDir.lexically_normal();
     if (!std::filesystem::exists(normalizedRootDir) || !std::filesystem::is_directory(normalizedRootDir))
@@ -295,36 +315,70 @@ std::vector<GlobResult> Glob(std::filesystem::path const& rootDir, std::string_v
         return {};
     }
 
+    // Reject unsupported constructs in the raw pattern, before any normalisation, so the diagnostic
+    // names exactly what the caller typed. Braces are checked first so a pattern with both reports braces.
+    if (pattern.find('{') != std::string_view::npos)
+    {
+        throw UnsupportedGlobPatternError("parameter 'pattern' uses braces, which are not supported; the pattern language is '*', '?', '**' and literal text");
+    }
+    if (pattern.find('[') != std::string_view::npos)
+    {
+        throw UnsupportedGlobPatternError("parameter 'pattern' uses character classes, which are not supported; the pattern language is '*', '?', '**' and literal text");
+    }
+
+    // Deduplicate the ignore set, keeping the first-seen order so the applied set reads like the input.
+    std::vector<std::string> appliedIgnoredDirectories;
+    for (std::string const& ignored : options.ignoredDirectories)
+    {
+        if (std::ranges::find(appliedIgnoredDirectories, ignored) == appliedIgnoredDirectories.end())
+        {
+            appliedIgnoredDirectories.push_back(ignored);
+        }
+    }
+
     // TODO: Use char8_t for UTF-8 content consistently so we don't have to do this here.
     std::u8string_view const utf8Pattern{ reinterpret_cast<char8_t const*>(pattern.data()), pattern.size() };
     auto normalizedPattern = std::filesystem::path{ utf8Pattern, std::filesystem::path::format::generic_format }.lexically_normal();
     if (normalizedPattern.has_root_name())
     {
-        throw std::runtime_error("error: malformed pattern");
+        throw InvalidGlobPatternError("parameter 'pattern' must be relative to root_dir");
     }
     if (normalizedPattern.has_root_directory())
     {
         normalizedPattern = normalizedPattern.relative_path();
     }
-    else
-    {
-        normalizedPattern = "**" / normalizedPattern;
-    }
 
-    std::vector<GlobResult> result;
-    for (GlobResult globResult : GlobInternal(normalizedRootDir, normalizedPattern))
+    std::vector<GlobResult> matches;
+    for (GlobResult globResult : GlobInternal(normalizedRootDir, normalizedPattern, false, appliedIgnoredDirectories))
     {
         globResult.name = globResult.name.lexically_relative(normalizedRootDir);
-        result.push_back(globResult);
+        matches.push_back(std::move(globResult));
     }
 
     // Sort and eliminate any duplicates.
     // Duplicates can happen if we get multiple distinct "**" in the pattern.
-    std::ranges::sort(result);
+    std::ranges::sort(matches);
     {
-        auto const [ begin, end ] = std::ranges::unique(result);
-        result.erase(begin, end);
+        auto const [ begin, end ] = std::ranges::unique(matches);
+        matches.erase(begin, end);
     }
+
+    // Report over the whole result set, before any capping.
+    GlobMatches result;
+    result.totalMatches       = matches.size();
+    result.ignoredDirectories = std::move(appliedIgnoredDirectories);
+    for (GlobResult const& match : matches)
+    {
+        // A match directly in rootDir has a single path element and is counted under ".".
+        std::string const key = match.name.has_parent_path() ? match.name.begin()->string() : ".";
+        ++result.countsByTopLevelDirectory[key];
+    }
+
+    if (options.maxResults != 0 && matches.size() > options.maxResults)
+    {
+        matches.resize(options.maxResults);
+    }
+    result.matches = std::move(matches);
 
     return result;
 }

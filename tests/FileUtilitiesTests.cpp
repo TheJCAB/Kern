@@ -61,12 +61,11 @@ int main() try
         }
     }
 
-    auto runGlob =
-        [&](std::string_view const pattern)
+    auto namesOf =
+        [](GlobMatches const& matches)
         {
-            auto matches = Glob(tempDir, pattern);
             std::vector<std::filesystem::path> names;
-            for (auto const& match : matches)
+            for (auto const& match : matches.matches)
             {
                 names.push_back(match.name);
             }
@@ -74,8 +73,26 @@ int main() try
             return names;
         };
 
+    auto runGlob =
+        [&](std::string_view const pattern, GlobOptions const& options = {})
+        {
+            return Glob(tempDir, pattern, options);
+        };
+
     {
-        auto names = runGlob("*.txt");
+        GlobMatches const txtMatches = runGlob("*.txt");
+        std::vector<std::filesystem::path> const expected{
+            "alpha.txt",
+            "sample.txt",
+        };
+        std::map<std::string, std::size_t> const expectedCounts{ { ".", 2 } };
+        ExpectEqual(namesOf(txtMatches), expected, "a bare pattern matches from rootDir only, so *.txt should return only top-level txt files");
+        ExpectEqual(txtMatches.totalMatches, txtMatches.matches.size(), "totalMatches should equal matches.size() when nothing is capped");
+        ExpectEqual(txtMatches.countsByTopLevelDirectory, expectedCounts, "*.txt should count both matches as directly under rootDir");
+    }
+
+    {
+        GlobMatches const txtMatches = runGlob("**/*.txt");
         std::vector<std::filesystem::path> const expected{
             "alpha.txt",
             "dir/nested/deep.txt",
@@ -84,44 +101,46 @@ int main() try
             "nested/gamma.txt",
             "sample.txt",
         };
-        ExpectEqual(names.size(), std::size_t{6}, "glob should match txt files at any depth when the pattern has no slash");
-        ExpectEqual(names, expected, "glob should return the expected txt files for a git-style pattern without a slash");
+        std::map<std::string, std::size_t> const expectedCounts{ { ".", 2 }, { "dir", 2 }, { "nested", 2 } };
+        ExpectEqual(namesOf(txtMatches), expected, "'**/' is how the whole tree is searched, so **/*.txt should return txt files at any depth");
+        ExpectEqual(txtMatches.totalMatches, txtMatches.matches.size(), "totalMatches should equal matches.size() when nothing is capped");
+        ExpectEqual(txtMatches.countsByTopLevelDirectory, expectedCounts, "**/*.txt should count matches per top-level directory");
     }
 
     {
-        auto names = runGlob("notes*");
+        auto names = namesOf(runGlob("**/notes*"));
         std::vector<std::filesystem::path> const expected{
             "dir/notes.md"
         };
-        ExpectEqual(names, expected, "glob should match files with wildcard at the end");
+        ExpectEqual(names, expected, "glob should match files with wildcard at the end under an explicit '**/' prefix");
     }
 
     {
-        auto names = runGlob("*otes.md");
+        auto names = namesOf(runGlob("**/*otes.md"));
         std::vector<std::filesystem::path> const expected{
             "dir/notes.md"
         };
-        ExpectEqual(names, expected, "glob should match files with wildcards at the start");
+        ExpectEqual(names, expected, "glob should match files with wildcards at the start under an explicit '**/' prefix");
     }
 
     {
-        auto names = runGlob("*otes*");
+        auto names = namesOf(runGlob("**/*otes*"));
         std::vector<std::filesystem::path> const expected{
             "dir/notes.md"
         };
-        ExpectEqual(names, expected, "glob should match files with wildcards at both ends");
+        ExpectEqual(names, expected, "glob should match files with wildcards at both ends under an explicit '**/' prefix");
     }
 
     {
-        auto names = runGlob("no*s.md");
+        auto names = namesOf(runGlob("**/no*s.md"));
         std::vector<std::filesystem::path> const expected{
             "dir/notes.md"
         };
-        ExpectEqual(names, expected, "glob should match files with wildcard in the middle");
+        ExpectEqual(names, expected, "glob should match files with wildcard in the middle under an explicit '**/' prefix");
     }
 
     {
-        auto names = runGlob("**/file");
+        auto names = namesOf(runGlob("**/file"));
         std::vector<std::filesystem::path> const expected{
             "file",
             "nested/file",
@@ -130,7 +149,7 @@ int main() try
     }
 
     {
-        auto names = runGlob("/file");
+        auto names = namesOf(runGlob("/file"));
         std::vector<std::filesystem::path> const expected{
             "file",
         };
@@ -138,7 +157,7 @@ int main() try
     }
 
     {
-        auto names = runGlob("/**/file");
+        auto names = namesOf(runGlob("/**/file"));
         std::vector<std::filesystem::path> const expected{
             "file",
             "nested/file",
@@ -147,7 +166,7 @@ int main() try
     }
 
     {
-        auto names = runGlob("dir/**/*.txt");
+        auto names = namesOf(runGlob("dir/**/*.txt"));
         std::vector<std::filesystem::path> const expected{
             "dir/nested/deep.txt",
             "dir/top.txt",
@@ -156,7 +175,7 @@ int main() try
     }
 
     {
-        auto names = runGlob("dir/*/deep.txt");
+        auto names = namesOf(runGlob("dir/*/deep.txt"));
         std::vector<std::filesystem::path> const expected{
             "dir/nested/deep.txt"
         };
@@ -164,18 +183,104 @@ int main() try
     }
 
     {
-        auto names = runGlob("nonexistent_file_pattern");
+        auto names = namesOf(runGlob("nonexistent_file_pattern"));
         Expect(names.empty(), "glob should return empty vector for non-existent pattern");
     }
 
     {
-        auto names = runGlob("dir/nonexistent_file.txt");
+        auto names = namesOf(runGlob("dir/nonexistent_file.txt"));
         Expect(names.empty(), "glob should return empty vector for non-existent path under dir");
     }
 
     {
-        auto names = runGlob("non_existent_folder/file.txt");
+        auto names = namesOf(runGlob("non_existent_folder/file.txt"));
         Expect(names.empty(), "glob should return empty vector for path with non-existent directory");
+    }
+
+    // The ignore set and the cap live in their own directory, so the shared tempDir cases above stay intact.
+    {
+        std::filesystem::path const ignoreDir = CreateTempDirectory("kern_fileutils_ignore_");
+        RawWriteTextFile(ignoreDir / "top.txt");
+        RawWriteTextFile(ignoreDir / "nested" / "kept.txt");
+        RawWriteTextFile(ignoreDir / "build" / "generated.txt");
+        RawWriteTextFile(ignoreDir / ".git" / "config.txt");
+
+        std::vector<std::filesystem::path> const nestedAndTop{
+            "nested/kept.txt",
+            "top.txt",
+        };
+        std::vector<std::string> const expectedIgnored{ "build", ".git" };
+
+        GlobMatches const defaultIgnored = Glob(ignoreDir, "**/*.txt", { .ignoredDirectories = { "build", ".git" } });
+        ExpectEqual(namesOf(defaultIgnored), nestedAndTop, "the default ignore set shape should hide the build and .git artefacts");
+        ExpectEqual(defaultIgnored.ignoredDirectories, expectedIgnored, "the applied ignore set should be reported in first-seen order");
+
+        GlobMatches const deduplicated = Glob(ignoreDir, "**/*.txt", { .ignoredDirectories = { "build", "build", ".git" } });
+        ExpectEqual(namesOf(deduplicated), nestedAndTop, "a repeated ignore entry should still hide the same artefacts");
+        ExpectEqual(deduplicated.ignoredDirectories, expectedIgnored, "a repeated ignore entry should be deduplicated in the reported set");
+
+        GlobMatches const nestedIgnored = Glob(ignoreDir, "**/*.txt", { .ignoredDirectories = { "nested" } });
+        std::vector<std::filesystem::path> const expectedNestedIgnored{
+            ".git/config.txt",
+            "build/generated.txt",
+            "top.txt",
+        };
+        ExpectEqual(namesOf(nestedIgnored), expectedNestedIgnored, "the ignore set should be configurable, so ignoring only nested leaves .git searched");
+
+        GlobMatches const escaped = Glob(ignoreDir / "build", "**/*.txt", { .ignoredDirectories = { "build" } });
+        std::vector<std::filesystem::path> const expectedEscaped{
+            "generated.txt"
+        };
+        ExpectEqual(namesOf(escaped), expectedEscaped, "the ignore set should never apply to rootDir itself, so aiming at build still searches it");
+
+        // "**/*" also yields the directories it walks, so the real total is five: top.txt, nested, build,
+        // nested/kept.txt and build/generated.txt. ".git" is ignored to keep the count deterministic.
+        GlobMatches const capped = Glob(ignoreDir, "**/*", { .ignoredDirectories = { ".git" }, .maxResults = 2 });
+        ExpectEqual(capped.matches.size(), std::size_t{ 2 }, "maxResults should cap the number of returned matches");
+        ExpectEqual(capped.totalMatches, std::size_t{ 5 }, "totalMatches should report every match found before capping");
+
+        std::filesystem::remove_all(ignoreDir);
+    }
+
+    {
+        bool threw = false;
+        try
+        {
+            Glob(tempDir, "*.{txt,md}");
+        }
+        catch (UnsupportedGlobPatternError const&)
+        {
+            threw = true;
+        }
+        Expect(threw, "a pattern with braces should throw UnsupportedGlobPatternError");
+    }
+
+    {
+        bool threw = false;
+        try
+        {
+            Glob(tempDir, "[ab]*.txt");
+        }
+        catch (UnsupportedGlobPatternError const&)
+        {
+            threw = true;
+        }
+        Expect(threw, "a pattern with character classes should throw UnsupportedGlobPatternError");
+    }
+
+    {
+        // A pattern such as "nested/../*.txt" normalises to "*.txt" and therefore cannot throw, so this
+        // case uses a leading ".." instead: lexically_normal() preserves a leading ".." segment.
+        bool threw = false;
+        try
+        {
+            Glob(tempDir, "../*.txt");
+        }
+        catch (InvalidGlobPatternError const&)
+        {
+            threw = true;
+        }
+        Expect(threw, "a pattern with a '..' segment should throw InvalidGlobPatternError");
     }
 
     std::filesystem::remove_all(tempDir);

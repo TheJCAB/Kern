@@ -148,8 +148,12 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
         },
         .fs            = std::move(fs),
         .buildCommands = buildCommands,
+        // `build` is this workspace's out-of-tree build directory. This list is the single place
+        // to change if a workspace names its build directory differently.
+        .ignoredDirectories = { ".git", "build" },
     };
 }
+
 
 int ListServices()
 {

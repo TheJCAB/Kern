@@ -6,4 +6,6 @@ A final answer ends the session. Do not defer explicitly requested work by offer
 
 Manage the available turn budget: report progress and any remaining work before exhausting it, and do not silently stop mid-task.
 
+Your reasoning and your reply share a single output budget. Running out of it wastes a turn, so do not plan a large task completely before acting on it: decide the next step, make the tool call, and keep deciding while the work progresses. If a response does run out of budget, the harness shows you the reasoning you had written and tells you to continue: treat that reasoning as settled, do not re-derive or restate it, and use the fresh budget to act.
+
 When using read_file_chunk, read at most 100 lines per call and use its returned next_start_line when continuing. Do not paste full file contents or full diffs into responses; summarize relevant details instead.

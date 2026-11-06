@@ -355,7 +355,15 @@ struct Session::Pimpl
         , m_tools             { config.tools.begin(), config.tools.end() }
         , m_maxTokens         { config.maxTokens                         }
     {
-        m_conversationHistory.push_back({ .role = "system", .content = std::move(config.systemPrompt) });
+        std::string systemPrompt = std::move(config.systemPrompt);
+        if (m_maxTokens != 0)
+        {
+            // Reasoning and the reply share one output budget, so say so up front and not only after a cut-off.
+            systemPrompt += "\n\nYour output budget for each response is " + std::to_string(m_maxTokens)
+                          + " tokens, shared between your reasoning and your reply, so a long chain of thought can use all of it"
+                            " and leave no room for the tool call or the answer you were thinking about.";
+        }
+        m_conversationHistory.push_back({ .role = "system", .content = std::move(systemPrompt) });
 
         std::println("log id: {}", m_log.id);
     }
@@ -372,15 +380,16 @@ struct Session::Pimpl
         m_conversationHistory.push_back({ .role{ "user" }, .content{ prompt } });
 
         // Holds the cut-off output plus a "hurry up" nudge for exactly one request; never stored in the history.
+        // The first retry explains the situation, the second is a bare order to act, and a third cut-off gives up.
         std::vector<ConversationMessage> hurryMessages;
+        unsigned hurryRetries = 0;
+        constexpr unsigned maxHurryRetries = 2;
         for (unsigned turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
         {
             std::println("===============================\nTurn {} [{}]", turn, m_log.id);
-            bool const isHurryRetry = !hurryMessages.empty();
             try
             {
                 json const payload = BuildPayload(hurryMessages);
-                hurryMessages.clear();
                 WriteLogFile(m_log, "request", payload.dump(2));
                 Log(LogLevel::debug, "turn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     turn, m_conversationHistory.size(), m_modelName, m_log.id, m_log.sequence);
@@ -635,40 +644,70 @@ struct Session::Pimpl
                             });
                         }
                     }
+                    // A turn that produced work resets the cut-off escalation to the polite first retry.
+                    hurryRetries = 0;
+                    hurryMessages.clear();
                 }
-                else if (modelResponse.reason == ResponseFinishReason::length && !isHurryRetry)
+                else if (modelResponse.reason == ResponseFinishReason::length && hurryRetries < maxHurryRetries)
                 {
-                    // Token cap hit mid-thought: for one request only, show the model its partial output and ask it to wrap up.
+                    // Token cap hit mid-thought: for one request only, show the model its partial output and tell it to act.
                     // The replacement response is what ends up in the history.
-                    std::println("Response hit the token limit; asking the model to wrap up");
-                    std::string partial = modelResponse.content;
+                    ++hurryRetries;
+                    std::println("Response hit the token limit after {} characters of reasoning and {} characters of content; asking the model to wrap up (retry {}/{})",
+                        modelResponse.reasoning.size(), modelResponse.content.size(), hurryRetries, maxHurryRetries);
+                    std::string partial;
                     if (!modelResponse.reasoning.empty())
                     {
-                        partial = "[Reasoning so far, cut off by the token limit]\n" + modelResponse.reasoning
-                                + (partial.empty() ? "" : "\n\n[Partial reply]\n" + partial);
+                        partial += "[Your reasoning so far, cut off by the output token limit. It is carried over so that you do not have to spend your budget repeating it, and it is settled: do not restate, revise or re-derive any of it.]\n"
+                                + modelResponse.reasoning
+                                + "\n[End of earlier reasoning]\n";
+                    }
+                    if (!modelResponse.content.empty())
+                    {
+                        partial += "[Partial reply]\n" + modelResponse.content + "\n[End of partial reply]\n";
                     }
                     if (partial.empty())
                     {
-                        partial = "(no output before the token limit was reached)";
+                        partial = "(there was no output before the token limit was reached)";
                     }
                     hurryMessages.push_back({
                         .role    = "assistant",
                         .content = std::move(partial),
                     });
+
+                    std::string const budget = m_maxTokens == 0 ? std::string("a fixed number of tokens") : std::to_string(m_maxTokens) + " tokens";
+                    std::string nudge;
+                    if (hurryRetries == 1)
+                    {
+                        // First retry: explain the situation, name the budget and make the failure mode explicit.
+                        nudge = "Your previous response was cut off because it reached the output token limit before it produced any tool call or answer. "
+                                "This is a continuation of the same task, not its completion. The whole budget, " + budget + ", applies again to this response, "
+                                "and the reasoning above was carried over so that you do not have to spend tokens repeating it. "
+                                "Treat everything above as settled: do not restate, revise or re-derive it. "
+                                "Spend a short amount of thought here, a paragraph and not a plan, and then act: make the next tool call now. "
+                                "If the whole task does not fit, do the first part completely and report the rest. "
+                                "A response that contains only reasoning is a failure: the retry is spent, the session ends and the work above is lost.";
+                    }
+                    else
+                    {
+                        // Second retry: no more analysis, one action.
+                        nudge = "Your previous response was cut off again without producing a tool call or an answer. "
+                                "Stop analysing and respond now, with appropriate tool calls or just a final response, from the plan you already settled on above; "
+                                "if that plan is incomplete, call the tool with what you have. Keep any reasoning to a single short paragraph. "
+                                "This is the last retry: another reasoning-only response ends the session and discards all of the work above.";
+                    }
                     hurryMessages.push_back({
                         .role    = "user",
-                        .content = "Your previous response was cut off because it reached the token limit. This is a continuation of the same task, not its completion. "
-                                   "Use this fresh response to finish any outstanding requested work now; do not repeat your analysis or defer work by asking the user to authorize it. "
-                                   "If actions remain, make the next tool call now. Give a concise final answer only after completing the task, or state a concrete blocker if you cannot.",
+                        .content = std::move(nudge),
                     });
                 }
                 else if (modelResponse.reason == ResponseFinishReason::length)
                 {
-                    std::println("Response hit the token limit again; giving up");
+                    std::println("Response hit the token limit again without producing a tool call or an answer; giving up");
                     return {
                         .ok        = false,
                         .errorCode = "length",
-                        .content   = "The model repeatedly hit the token limit",
+                        .content   = "The model hit the token limit repeatedly without producing a tool call or an answer",
                         .turnsUsed = turn + 1,
                     };
                 }

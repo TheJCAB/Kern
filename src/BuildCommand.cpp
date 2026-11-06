@@ -37,15 +37,6 @@ std::string ReadRequiredString(json const& object, char const* key)
     return value;
 }
 
-bool IsWithin(std::filesystem::path const& root, std::filesystem::path const& candidate)
-{
-    std::filesystem::path const rootPath      = std::filesystem::absolute(root).lexically_normal();
-    std::filesystem::path const candidatePath = std::filesystem::absolute(candidate).lexically_normal();
-
-    auto const mismatch = std::mismatch(rootPath.begin(), rootPath.end(), candidatePath.begin(), candidatePath.end());
-    return mismatch.first == rootPath.end();
-}
-
 // Parses and validates one fully resolved command out of a build declaration object.
 BuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& workspaceRoot)
 {

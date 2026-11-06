@@ -242,6 +242,41 @@ int main() try
         std::filesystem::remove_all(ignoreDir);
     }
 
+    // Symlinks are never followed by a "**" search, so a link cannot make a glob walk out of the tree.
+    // This uses its own temp directories so the shared tempDir fixture stays untouched.
+    {
+        std::filesystem::path const linkRoot    = CreateTempDirectory("kern_fileutils_link_");
+        std::filesystem::path const linkOutside = CreateTempDirectory("kern_fileutils_link_outside_");
+
+        RawWriteTextFile(linkRoot / "kept.txt");
+        RawWriteTextFile(linkRoot / "real" / "child.txt");
+        RawWriteTextFile(linkOutside / "escaped.txt");
+
+        std::error_code dirLinkError;
+        std::filesystem::create_symlink(linkOutside, linkRoot / "dir_link", dirLinkError);
+        std::error_code fileLinkError;
+        std::filesystem::create_symlink(linkOutside / "escaped.txt", linkRoot / "escaped.txt", fileLinkError);
+
+        if (dirLinkError || fileLinkError)
+        {
+            std::cout << "Symlinks are not permitted for this user on this platform, so the symlink glob test was skipped." << std::endl;
+        }
+        else
+        {
+            std::vector<std::filesystem::path> const expected{
+                "escaped.txt",
+                "kept.txt",
+                "real/child.txt",
+            };
+            ExpectEqual(namesOf(Glob(linkRoot, "**/*.txt")), expected, "a '**' search should report a symlinked file as a match but never descend into a symlinked directory");
+
+            Expect(namesOf(Glob(linkRoot, "dir_link/*.txt")).empty(), "descent should stop at a symlinked directory even when the pattern names it explicitly");
+        }
+
+        std::filesystem::remove_all(linkRoot);
+        std::filesystem::remove_all(linkOutside);
+    }
+
     {
         bool threw = false;
         try

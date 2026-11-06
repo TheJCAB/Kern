@@ -179,8 +179,32 @@ json GrepTool(json const& arguments, ToolsRuntimeContext const& context)
                 continue;
             }
 
+            // A file whose resolved path escapes the search root is reported in place rather than
+            // aborting the whole search, exactly like an unreadable file.
+            std::filesystem::path filePath;
+            try
+            {
+                filePath = context.fs.ValidatePath(searchRoot / match.name);
+            }
+            catch (std::exception const& e)
+            {
+                matchArray.push_back(json{
+                    { "file"     , match.name.generic_string() },
+                    { "returned" , 0                           },
+                    { "truncated", false                       },
+                    { "lines"    , json::array()               },
+                    { "error"    , e.what()                    },
+                });
+                if (matchArray.size() >= GrepMaxFiles)
+                {
+                    stoppedAtFileCap = hasMoreRegularFiles(index);
+                    break;
+                }
+                continue;
+            }
+
             // TODO: Implement and use streaming reads via ReadTextFileChunk
-            std::ifstream file{ context.fs.ValidatePath(searchRoot / match.name) };
+            std::ifstream file{ filePath };
             if (!file.is_open())
             {
                 // One unreadable file must not abort the search: it is reported in place.

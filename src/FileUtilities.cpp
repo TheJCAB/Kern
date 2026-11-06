@@ -172,6 +172,17 @@ std::filesystem::path GetExecutableDirectory()
     return exe_dir;
 }
 
+// True when `candidate` is `root` itself or lies below it. The comparison is component-wise, so
+// "/ws/build" is inside "/ws" while "/ws/build2" is not, and a candidate shorter than the root is
+// simply not inside it.
+bool IsWithin(std::filesystem::path const& root, std::filesystem::path const& candidate)
+{
+    std::filesystem::path const rootPath      = std::filesystem::absolute(root).lexically_normal();
+    std::filesystem::path const candidatePath = std::filesystem::absolute(candidate).lexically_normal();
+
+    auto const mismatch = std::mismatch(rootPath.begin(), rootPath.end(), candidatePath.begin(), candidatePath.end());
+    return mismatch.first == rootPath.end();
+}
 
 bool MatchGlobSegment(std::filesystem::path::string_type const& pattern, std::filesystem::path::string_type const& text)
 {
@@ -273,6 +284,13 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
     {
         auto const entryName = entry.path().filename();
 
+        // A symlink is never followed: its target can be outside the tree being searched, so
+        // descending through one would make a glob silently walk out of the workspace. A symlinked
+        // file is still reported as a match (the reader validates the resolved path again), but a
+        // symlinked directory is a leaf and recursion stops there.
+        std::error_code symlinkError;
+        bool const      isSymlink = entry.is_symlink(symlinkError);
+
         // The ignore set applies to entries below rootDir only: this loop never sees rootDir itself.
         if (entry.is_directory(error) && IsIgnoredDirectory(entryName, ignoredDirectories))
         {
@@ -289,7 +307,7 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
                     .type = entry.status(error).type(),
                 };
             }
-            else if (entry.is_directory(error))
+            else if (!isSymlink && entry.is_directory(error))
             {
                 // Note: even if recurseAll is set, we've now matched a newer segment.
                 // So we must consider the recursion "spent" and not continue the recursion here.
@@ -297,7 +315,7 @@ std::generator<GlobResult> GlobInternal(std::filesystem::path rootDir, std::rang
             }
         }
 
-        if (recurseAll && entry.is_directory(error))
+        if (recurseAll && !isSymlink && entry.is_directory(error))
         {
             // recurseAll means we search in every subdirectory, whether it matched or not.
             // Note: we swallow this directory into the recurseAll pattern and keep searching,

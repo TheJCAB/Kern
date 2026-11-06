@@ -6,6 +6,19 @@
 #include <string>
 #include <string_view>
 #include <vector>
+// Version control metadata lives in a directory of this name at the root of a workspace. It is never
+// writable: a hook installed there is a command that runs the next time a human runs git, which is
+// exactly what a guardrail must refuse.
+constexpr char VersionControlDirectoryName[] = ".git";
+
+// Windows and macOS resolve "kern.build.json" and "Kern.build.json" to the same directory entry, so
+// on those platforms every path comparison in the guarded file system ignores case. Elsewhere the two
+// names are genuinely different files, and an exact comparison is the correct one.
+#if defined(_WIN32) || defined(__APPLE__)
+constexpr bool FileSystemPathsIgnoreCase = true;
+#else
+constexpr bool FileSystemPathsIgnoreCase = false;
+#endif
 
 class ValidatedFileSystem
 {

@@ -24,6 +24,10 @@ void RawWriteTextFile(std::filesystem::path const& path, std::string_view conten
 
 inline void RawWriteTextFile(std::filesystem::path const& path) { RawWriteTextFile(path, path.string()); }
 
+// True when `candidate` is `root` itself or lies below it. The comparison is component-wise, so
+// "/ws/build" is inside "/ws" while "/ws/build2" is not, and a candidate shorter than the root is
+// simply not inside it.
+bool IsWithin(std::filesystem::path const& root, std::filesystem::path const& candidate);
 
 std::filesystem::path GetExecutableDirectory();
 

@@ -65,6 +65,8 @@ Kern has no shell and can never run an arbitrary command. The only way it can ex
 }
 ```
 
+Playing safe with the tool surface is still not a sandbox: a `build` command runs the project's own tooling, and project files such as `CMakeLists.txt` are themselves writable, so a build can do whatever the project's build system can do.
+
 A declaration may instead list several commands under `commands` when the build needs more than one step, for example configuring before building so that newly added source files or targets are picked up:
 
 ```json
@@ -93,6 +95,16 @@ A declaration uses either a single `command` or a `commands` array, never both. 
 The tool is offered to both the `implement` and the `research` subagents when the workspace declares a build, but never to the orchestrating agent, and it takes no arguments at all: the model chooses *when* to build but never *what* to run, so nothing it writes can reach a command line. The commands of the declaration run in order, the build stops at the first command that fails, and the output of every command is combined into one report. The researcher can only use it to report pre-existing build errors, because it cannot edit files. The model gets back the combined stdout and stderr, the exit code and whether the build timed out; when a declaration lists several commands it also reports the exit code of the failing command and which step failed. Very long output is truncated to its first 8 KiB and its last 24 KiB.
 
 `Kern.build.json` is read-only to Kern: every editing tool refuses to write to that path, because only the owners of a workspace may describe how to build it. Without the file there is no `build` tool at all; with an invalid one Kern refuses to start instead of quietly falling back to something else.
+
+## What Kern may touch
+
+Every path a tool receives is resolved before it is used, so a symbolic link is resolved to its target and a link that points outside the workspace is rejected. An agent therefore cannot read or write outside the workspace through a link, and a linked directory is never descended into by `glob` or `grep`, so a recursive search cannot silently leave the workspace. A symlinked file inside the workspace that points outside is still reported as a `glob` match, but reading it is refused.
+
+`.git` is read-only to Kern, exactly like `Kern.build.json`, and the refusal covers everything below it, so a hook cannot be installed that runs the next time a human runs `git`. `Kern.build.json` is also covered by a prefix test, so no sub-path can be used to reach it, and on file systems that ignore case the comparison ignores case too.
+
+The `build` directory and `.git` are hidden from `glob` and `grep` results because they are typically not relevant to a search. That list is navigation-only: it has no say in whether a write is allowed. `.git` is protected independently by the guarded file system, and `build` is not protected at all, because a workspace's generated output is ordinary content that Kern may write to.
+
+The workspace instruction files, `Kern.txt` and `Kern.md`, are ordinary files that Kern may change. These guards are a safety net for mistakes rather than a security boundary against a build that the workspace owners themselves declared.
 
 ## Services and API keys
 

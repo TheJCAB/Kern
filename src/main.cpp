@@ -134,6 +134,10 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
     // system must refuse any write to it: only the owners of the workspace may change it.
     fs.AddProtectedPath(std::filesystem::current_path() / BuildConfigurationFileName);
 
+    // A file written into version control metadata is a command that runs the next time a human runs
+    // git, so the guarded file system must refuse every write below it.
+    fs.AddProtectedPath(std::filesystem::current_path() / VersionControlDirectoryName);
+
     return ToolsRuntimeContext{
         .createNewSession = [settings = std::move(settings)](ToolsRuntimeContext const& context, std::string_view systemPrompt, std::span<ToolDefinition const> tools)
         {
@@ -148,8 +152,10 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
         },
         .fs            = std::move(fs),
         .buildCommands = buildCommands,
-        // `build` is this workspace's out-of-tree build directory. This list is the single place
-        // to change if a workspace names its build directory differently.
+        // This list is navigation-only: it hides these directories from glob and grep results
+        // because they are typically not relevant. It deliberately has no say in whether a write is
+        // allowed: ".git" is protected by the guarded file system, and "build" is not protected at
+        // all.
         .ignoredDirectories = { ".git", "build" },
     };
 }

@@ -137,7 +137,7 @@ constexpr ToolDefinition build
     .description        = "Run the build that the owners of this workspace declared, to check that your edits are correct. "
                           "The workspace may declare several commands, which run in order and stop at the first failure, and the output of all of them is combined. "
                           "This tool takes no arguments: the commands, their arguments, their working directories and their timeouts are all fixed by the workspace owners and cannot be changed or extended by you. "
-                          "Returns the combined compiler and test output, the exit code, and whether the build timed out. "
+                          "Returns the combined command output, the exit code, and whether the build timed out. "
                           "Call it once after a coherent set of edits, not after every single edit, and never call it again in a loop hoping for a different answer.",
     .callTool           = BuildTool,
 };

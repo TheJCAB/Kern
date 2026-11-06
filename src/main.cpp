@@ -52,6 +52,7 @@ struct SessionSettings
 {
     Endpoint    endpoint;
     std::string model;
+    std::string commonSystemPrompt;
     std::string workspaceInstructions;
     unsigned    maxTokens = 0;
 
@@ -110,6 +111,7 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
         settings.endpoint.port = *options.port;
     }
 
+    settings.commonSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "CommonSystemPrompt.txt");
     settings.workspaceInstructions = LoadWorkspaceInstructions();
 
     // A workspace that declares no build simply has no build tool at all, while one that
@@ -138,7 +140,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
             return Session{Session::Config{
                 .endpointDescriptor = settings.endpoint,
                 .toolContext        = context,
-                .systemPrompt       = std::string(systemPrompt) + settings.workspaceInstructions,
+                .systemPrompt       = std::string(systemPrompt) + settings.commonSystemPrompt + settings.workspaceInstructions,
                 .modelName          = settings.model,
                 .tools              = tools,
                 .maxTokens          = settings.maxTokens,
@@ -172,7 +174,7 @@ int Run(CommandLineOptions const& options)
     Session session{Session::Config{
         .endpointDescriptor = settings.endpoint,
         .toolContext        = MakeToolsRuntimeContext(settings),
-        .systemPrompt       = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.workspaceInstructions,
+        .systemPrompt       = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions,
         .modelName          = settings.model,
         .tools              = MainTools,
         .maxTokens          = settings.maxTokens,

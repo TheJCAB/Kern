@@ -20,7 +20,8 @@ json BuildPayloadToolDefinitions(std::span<ToolDefinition const> const tools)
             { "description", toolDef.description },
         };
 
-        if (!toolDef.requiredParameters.empty() || !toolDef.optionalParameters.empty())
+        // Always emit "parameters", even for tools without any: some providers (e.g. Cerebras)
+        // reject a function definition that lacks it.
         {
             json parametersJson = {
                 { "type"      , "object" },
@@ -74,6 +75,11 @@ json BuildPayloadToolDefinitions(std::span<ToolDefinition const> const tools)
             for (auto&& param : toolDef.optionalParameters)
             {
                 addParameter(param, false);
+            }
+
+            if (required.empty())
+            {
+                parametersJson.erase("required");
             }
 
             toolJson["parameters"] = std::move(parametersJson);

@@ -657,9 +657,9 @@ struct Session::Pimpl
                     });
                     hurryMessages.push_back({
                         .role    = "user",
-                        .content = "Your previous response was cut off because it reached the token limit. "
-                                   "Stop deliberating: using what you've worked out so far, either make the next tool call "
-                                   "or give your final answer now, concisely.",
+                        .content = "Your previous response was cut off because it reached the token limit. This is a continuation of the same task, not its completion. "
+                                   "Use this fresh response to finish any outstanding requested work now; do not repeat your analysis or defer work by asking the user to authorize it. "
+                                   "If actions remain, make the next tool call now. Give a concise final answer only after completing the task, or state a concrete blocker if you cannot.",
                     });
                 }
                 else if (modelResponse.reason == ResponseFinishReason::length)

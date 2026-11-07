@@ -3,8 +3,10 @@
 
 #include "TestUtilities.h"
 
+#include <cstdint>
 #include <iostream>
 #include <string>
+#include <vector>
 
 int main()
 {
@@ -25,10 +27,24 @@ int main()
     ReplaceNewlinesIn(nlString, " ");
     ExpectEqual(nlString, "Line 1 Line 2 Line 3", "ReplaceNewlinesIn must find and replace all newlines");
 
+    std::println("Test CountLines");
+    ExpectEqual(CountLines(""), std::int64_t{0}, "CountLines must return 0 for empty text");
+    ExpectEqual(CountLines("a\nb\nc"), std::int64_t{3}, "CountLines must count lines without a trailing newline");
+    ExpectEqual(CountLines("a\nb\nc\n"), std::int64_t{3}, "CountLines must not count a trailing newline as a line");
+
     std::println("Test ReplaceIn");
     std::string replaceStr = "The quick brown fox";
     ReplaceIn(replaceStr, "brown", "red");
     ExpectEqual(replaceStr, "The quick red fox", "ReplaceIn must replace the given string");
+
+    std::println("Test SplitLines and JoinLines");
+    std::vector<std::string> const splitLines = SplitLines("Line 1\nLine 2\nLine 3\n");
+    ExpectEqual(splitLines.size(), std::size_t{3}, "SplitLines must not produce a trailing empty line");
+    ExpectEqual(splitLines.front(), std::string("Line 1"), "SplitLines must keep the first line");
+    ExpectEqual(splitLines.back(), std::string("Line 3"), "SplitLines must keep the last line");
+    Expect(SplitLines("").empty(), "SplitLines must return no lines for empty text");
+    ExpectEqual(JoinLines(splitLines), std::string("Line 1\nLine 2\nLine 3"), "JoinLines must not add a trailing newline");
+    ExpectEqual(JoinLines(std::vector<std::string>{}), std::string(""), "JoinLines must return an empty string for no lines");
 
     // Test ConfigureConsoleForUtf8 (hard to test without a real console, but we can check it doesn't crash)
     ConfigureConsoleForUtf8();

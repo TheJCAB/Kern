@@ -1,28 +1,38 @@
 #pragma once
 
+#include <StringUtilities.h>
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
+
+#include <filesystem>
+#include <string_view>
 
 inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& context)
 {
     auto const path    = arguments.value("path"   , "");
     auto const content = arguments.value("content", "");
 
-    json response{
-        { "path", path },
-    };
-
     try
     {
+        std::filesystem::path const validated = context.fs.ValidateWritablePath(path);
+        bool const created = !std::filesystem::exists(validated);
         context.fs.WriteTextFile(path, content);
-        response["success"] = true;
+
+        return json{
+            { "path"       , path               },
+            { "created"    , created            },
+            { "lines_after", CountLines(content) },
+            { "success"    , true               },
+        };
     }
     catch(const std::exception& e)
     {
-        response["error"] = e.what();
+        return json{
+            { "path"   , path     },
+            { "success", false    },
+            { "error"  , e.what() },
+        };
     }
-
-    return response;
 }
 
 constexpr ToolParameter WriteFileToolParameters[] =
@@ -35,7 +45,7 @@ constexpr ToolParameter WriteFileToolParameters[] =
 constexpr ToolDefinition write_file
 {
     .name               = "write_file",
-    .description        = "Write text content to a file",
+    .description        = "Write text content to a file, replacing any existing contents. Returns whether the file was created and its new line count.",
     .requiredParameters = WriteFileToolParameters,
     .callTool           = WriteFileTool,
 };

@@ -5,7 +5,10 @@
 #include <windows.h>
 #endif
 
+#include <algorithm>
 #include <cstdlib>
+#include <sstream>
+#include <vector>
 
 void ConfigureConsoleForUtf8()
 {
@@ -126,4 +129,52 @@ void ReplaceIn(std::string& string, std::string_view const placeholder, std::str
         string.replace(pos, placeholder.length(), replacement);
         pos += replacement.length();
     }
+}
+
+std::int64_t CountLines(std::string_view const text)
+{
+    if (text.empty())
+    {
+        return 0;
+    }
+
+    std::int64_t const newlineCount = static_cast<std::int64_t>(std::count(text.begin(), text.end(), '\n'));
+    return text.ends_with('\n') ? newlineCount : newlineCount + 1;
+}
+
+std::vector<std::string> SplitLines(std::string_view const content)
+{
+    std::vector<std::string> lines;
+    if (content.empty())
+    {
+        return lines;
+    }
+
+    std::istringstream input{std::string(content)};
+    std::string line;
+    while (std::getline(input, line))
+    {
+        lines.push_back(std::move(line));
+    }
+
+    return lines;
+}
+
+std::string JoinLines(std::vector<std::string> const& lines)
+{
+    if (lines.empty())
+    {
+        return {};
+    }
+
+    std::ostringstream output;
+    for (std::size_t index = 0; index < lines.size(); ++index)
+    {
+        if (index > 0)
+        {
+            output << '\n';
+        }
+        output << lines[index];
+    }
+    return output.str();
 }

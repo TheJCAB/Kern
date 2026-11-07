@@ -6,3 +6,4 @@ Main subdirectories in this workspace:
 - "data" contains some files used at runtime, like system prompts.
 - "src/Tools" contains the implementation of AI agent tools.
 All source files must end on a newline.
+The code complies with the C++23 standard, and you should always prefer its more modern features like `std::ranges` and `std::format`.

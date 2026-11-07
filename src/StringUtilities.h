@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Configure the console to admit and emit UTF-8 text.
 // No-op on Linux, actively configures the console on Windows.
@@ -24,3 +25,15 @@ void ReplaceNewlinesIn(std::string& string, std::string_view replacement);
 
 // Find and replace in the given string.
 void ReplaceIn(std::string& string, std::string_view placeholder, std::string_view replacement);
+
+// Count the number of lines in the given text. Empty text has no lines, and a
+// trailing newline does not add an extra line.
+std::int64_t CountLines(std::string_view const text);
+
+// Split the given text into its lines. A trailing newline does not produce a
+// final empty line, and empty text produces no lines.
+std::vector<std::string> SplitLines(std::string_view const content);
+
+// Join the given lines with newlines, without a trailing newline. No lines
+// produces an empty string.
+std::string JoinLines(std::vector<std::string> const& lines);

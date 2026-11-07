@@ -84,3 +84,15 @@ target_include_directories(build_command_tests PRIVATE ../src)
 target_link_libraries(build_command_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME build_command_tests COMMAND build_command_tests)
+
+add_executable(tool_feedback_tests
+    ToolFeedbackTests.cpp
+    ../src/FileUtilities.cpp
+    ../src/FileValidation.cpp
+    ../src/StringUtilities.cpp
+)
+
+target_include_directories(tool_feedback_tests PRIVATE ../src)
+target_link_libraries(tool_feedback_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME tool_feedback_tests COMMAND tool_feedback_tests)

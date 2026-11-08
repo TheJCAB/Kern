@@ -14,6 +14,7 @@
 #include "Tools/write_file.h"
 
 #include <nlohmann/json.hpp>
+#include <openvino/openvino.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -48,9 +49,41 @@ constexpr ToolDefinition MainTools[] =
 Endpoint const ollamaEndpoint  { .host = "127.0.0.1", .port = 11434, .path = "/api/chat" };
 Endpoint const llamacppEndpoint{ .host = "127.0.0.1", .port =  8080, .path = "/v1/chat/completions" };
 
+bool openVino = true;
+
 int main(int argc, char** argv)
 {
     ConfigureConsoleForUtf8();
+
+if (openVino)
+{
+    ov::Core core;
+
+    // Load your model (OpenVINO IR or ONNX)
+    std::shared_ptr<ov::Model> model = core.read_model(R"(C:\Users\thejc\repos\Models\Gemma4-12B-it-int4\openvino_language_model.xml)");
+
+    // Compile for Intel AI Boost NPU
+    ov::CompiledModel compiled_model = core.compile_model(model, "NPU");
+
+    // Create inference request
+    ov::InferRequest infer_request = compiled_model.create_infer_request();
+
+    // Set input tensor
+    ov::Tensor input_tensor = infer_request.get_input_tensor();
+
+    // Fill input_tensor with your data...
+    std::string_view input_data = "Hello, there, who are you?";
+    memcpy(input_tensor.data(), input_data.data(), std::min(input_tensor.get_size(), input_data.size()));
+
+    // Run inference
+    infer_request.infer();
+
+    // Get output
+    ov::Tensor output_tensor = infer_request.get_output_tensor();
+
+    // Use output_tensor...
+
+}
 
     Endpoint endpoint = llamacppEndpoint;
     std::string model = "gemma4";

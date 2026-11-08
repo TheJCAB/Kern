@@ -4,6 +4,11 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING "Vcpkg toolchain file")
+endif()
+
 project(kern LANGUAGES CXX)
 
 enable_testing()
@@ -23,9 +28,33 @@ file(
 )
 include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
-CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
+set(JSON_TARGET "")
+find_package(nlohmann_json CONFIG QUIET)
+if(TARGET nlohmann_json::nlohmann_json)
+    set(JSON_TARGET nlohmann_json::nlohmann_json)
+endif()
+if(NOT JSON_TARGET)
+    CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
+    set(JSON_TARGET nlohmann_json::nlohmann_json)
+endif()
 
-CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0)
+set(HTTPLIB_TARGET "")
+find_package(cpp-httplib CONFIG QUIET)
+if(TARGET cpphttplib::cpphttplib)
+    set(HTTPLIB_TARGET cpphttplib::cpphttplib)
+elseif(TARGET "cpp-httplib::cpp-httplib")
+    set(HTTPLIB_TARGET "cpp-httplib::cpp-httplib")
+endif()
+if(NOT HTTPLIB_TARGET)
+    find_package(httplib CONFIG QUIET)
+    if(TARGET httplib::httplib)
+        set(HTTPLIB_TARGET httplib::httplib)
+    endif()
+endif()
+if(NOT HTTPLIB_TARGET)
+    CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0)
+    set(HTTPLIB_TARGET httplib::httplib)
+endif()
 
 add_executable(kern
     src/FileUtilities.cpp       src/FileUtilities.h
@@ -50,7 +79,7 @@ target_compile_features(kern PRIVATE cxx_std_23)
 
 target_include_directories(kern PRIVATE src)
 
-target_link_libraries(kern PRIVATE nlohmann_json::nlohmann_json httplib::httplib)
+target_link_libraries(kern PRIVATE ${JSON_TARGET} ${HTTPLIB_TARGET})
 
 set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:kern>/data)
 

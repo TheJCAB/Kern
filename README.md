@@ -17,6 +17,28 @@ cmake --preset clang-ninja
 cmake --build --preset clang-ninja
 ```
 
+### Build with vcpkg
+
+If you have vcpkg installed and `VCPKG_ROOT` set, CMake will use the vcpkg toolchain automatically.
+
+```bash
+export VCPKG_ROOT="/path/to/vcpkg"
+cmake --preset clang-ninja
+cmake --build --preset clang-ninja
+```
+
+On Windows with PowerShell:
+
+```powershell
+$env:VCPKG_ROOT = 'C:\path\to\vcpkg'
+cmake --preset MSVC-Release
+cmake --build --preset MSVC-Release
+```
+
+The project also falls back to CPM.cmake when vcpkg packages are not available.
+
+> Note: the `vcpkg.json` manifest now includes a `builtin-baseline`, which is required for vcpkg manifest mode.
+
 ## Run
 
 Start a llama.cpp server that exposes an OpenAI-compatible endpoint, for example:

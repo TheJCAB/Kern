@@ -189,3 +189,12 @@ Use `--log-level LEVEL` to get diagnostics on stderr (so they don't mix with the
 - `trace`: additionally prints every server-sent event as it arrives.
 
 If the service answers with an HTTP error (wrong key, unknown model...), Kern stops and shows the status and the start of the body. The exceptions are HTTP 429 (rate limit) and 503 (unavailable): Kern waits and retries up to 5 times (5, 10, 20, 40, 60 s, or longer if the server sends `Retry-After`) and logs a warning each time. API keys are never logged: headers are never printed, and the key is also scrubbed from response bodies. The saved request and response files contain your conversation, so treat them as private.
+
+## Planning
+
+`planning/` holds proposals for work that is not implemented yet. Nothing in it describes the current behaviour of the code.
+
+`planning/README.md` is the index: it lists the pending plans and the rules for managing that directory, so read it first. Each plan is a self-contained `NN-slug.md` file, opened by a `Status:` line and cross-referenced by relative links to the other plans.
+
+- Source changes go in `src/`, tests in `tests/`, and pending design work that has been agreed but not built goes in `planning/` as a plan, not scattered through code comments or issues.
+- Plans describe intent; the code and its tests remain the source of truth for what Kern actually does.

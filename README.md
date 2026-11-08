@@ -50,6 +50,12 @@ Then run the harness:
 
 The harness will send the request to the model, interpret tool calls, invoke the model with the tool results and then continue the loop until the number of turns is exhausted or the model declares the task complete.
 
+Add `--session-tag TEXT` to label the run in its transcript, so that the run can be selected later:
+
+```bash
+./build/Release/kern --session-tag tool-schema-v3 "add a test"
+```
+
 ## Letting Kern build your project
 
 Kern has no shell and can never run an arbitrary command. The only way it can execute anything is an optional `build` tool, and that tool only exists if the owners of the workspace declare it in a `Kern.build.json` file at the root of the workspace:
@@ -114,9 +120,9 @@ Every model server Kern talks to is a *service*: a name, an endpoint and, option
 ./build/Release/kern --service openai --model gpt-4.1 "Review src/main.cpp"
 ```
 
-Two services are built in and need no configuration or key: `llama.cpp` (`http://127.0.0.1:8080/v1/chat/completions`, the default) and `ollama` (`http://127.0.0.1:11434/api/chat`). Use `--list-services` to see all services and whether their keys are set (key values are never shown).
+Two services are built in and need no configuration or key: `llama.cpp` (`http://127.0.0.1:8080/v1/chat/completions`, the default) and `ollama` (`http://127.0.0.1:11434/api/chat`). Use `--list-services` to see all services and whether their keys are set (key values are never shown). Use `--show-sessions` instead to see the recorded sessions: it prints a table of their id, tag, model and completion flag, then a count, and a manifest it cannot parse is listed as `unreadable` rather than skipped.
 
-Other options: `--model NAME` overrides the service's default model, `--port N` overrides the endpoint's port, and `--endpoint URL` uses an ad-hoc endpoint that needs no key.
+Other options: `--model NAME` overrides the service's default model, `--port N` overrides the endpoint's port, and `--endpoint URL` uses an ad-hoc endpoint that needs no key. `--record <on|off|auto>` controls session recording (`on` is the default, `auto` currently behaves as `on`, and `off` disables it entirely), `--session-dir PATH` writes the transcripts somewhere other than the `logs/` directory beside the executable, and `--session-tag TEXT` labels a run, for example `tool-schema-v3`.
 
 ### Declaring services
 
@@ -188,13 +194,22 @@ Use `--log-level LEVEL` to get diagnostics on stderr (so they don't mix with the
 - `debug`: each request (URL, size, model, message count), the HTTP status, timing, size of the response and the finish reason. It also saves the complete raw response of every turn as `logs/<id>_<turn>_response_raw.txt`, next to the `..._request.json` that is always written. The `logs` directory is next to the `kern` executable.
 - `trace`: additionally prints every server-sent event as it arrives.
 
-If the service answers with an HTTP error (wrong key, unknown model...), Kern stops and shows the status and the start of the body. The exceptions are HTTP 429 (rate limit) and 503 (unavailable): Kern waits and retries up to 5 times (5, 10, 20, 40, 60 s, or longer if the server sends `Retry-After`) and logs a warning each time. API keys are never logged: headers are never printed, and the key is also scrubbed from response bodies. The saved request and response files contain your conversation, so treat them as private.
+### Session transcripts
+
+Every run records itself, by default. Two files are written beside the executable's `logs/` directory (or under `--session-dir PATH`), both named with the run's log id: `<id>_session.json` is the manifest, written when the run starts and rewritten when it ends, and `<id>_turns.jsonl` gets one appended JSON line per turn. `--record off` disables this entirely.
+
+The manifest holds `schemaVersion`, `complete`, `identity` (id, role, parent id, tag), `provenance` (build id, model, decoding parameters, endpoint host/port/path/secure, max tokens, max turns), `inputs` (system prompt, tool definitions) and `outcome`. Each turn line holds the turn number, the token usage, the wall time of the response, the finish reason, the assistant text, the tool calls made and their results, truncated to a first 2000-character excerpt (`resultTruncated` marks that).
+
+- Recording is best effort: a transcript that cannot be written logs a warning, disables further recording for that run and never fails the run.
+- A manifest with `"complete": false` marks a run that did not finish, so such a transcript is evidence rather than a case.
+- Credential material is never written to a transcript; only the endpoint's host, port, path and secure flag are recorded.
 
 ## Planning
 
-`planning/` holds proposals for work that is not implemented yet. Nothing in it describes the current behaviour of the code.
+`planning/` holds proposals for work that is not finished: a plan may be partly implemented, but it lists only what is still pending, and nothing in it is documentation of the current behaviour of the code.
 
 `planning/README.md` is the index: it lists the pending plans and the rules for managing that directory, so read it first. Each plan is a self-contained `NN-slug.md` file, opened by a `Status:` line and cross-referenced by relative links to the other plans.
 
 - Source changes go in `src/`, tests in `tests/`, and pending design work that has been agreed but not built goes in `planning/` as a plan, not scattered through code comments or issues.
 - Plans describe intent; the code and its tests remain the source of truth for what Kern actually does.
+- A plan describes only pending work: implementing part of it rewrites it in the same change so that it matches the code as it now is, because the record of what was done belongs in the commit history rather than in the plan.

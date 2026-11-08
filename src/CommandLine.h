@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -23,6 +24,7 @@ enum class CommandLineAction
     run,
     printHelp,
     listServices,
+    showSessions,
 };
 
 constexpr unsigned DefaultMaxTurns = 50;
@@ -37,6 +39,9 @@ struct CommandLineOptions
     std::optional<LogLevel>       logLevel{};
     unsigned                      maxTurns = DefaultMaxTurns;
     std::string                   prompt{};
+    bool                          record = true;      // write a session manifest and turn file for every run; --record off disables it
+    std::filesystem::path         sessionDirectory{}; // where transcripts go; empty means the logs/ directory beside the executable
+    std::string                   sessionTag{};       // free-form label recorded in the manifest and used to select runs, e.g. tool-schema-v3
 };
 
 // Parses the arguments that follow the program name (i.e. argv[1..argc-1]).

@@ -2,20 +2,23 @@
 #include "CommandLine.h"
 #include "Credentials.h"
 #include "FileUtilities.h"
+#include "JsonUtilities.h"
 #include "Logging.h"
 #include "Services.h"
 #include "Session.h"
+#include "SessionRecorder.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 
 #include "Tools/implement.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/research.h"
-
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <format>
 #include <format>
 #include <optional>
 #include <print>
@@ -52,9 +55,17 @@ struct SessionSettings
 {
     Endpoint    endpoint;
     std::string model;
+    // Name of the service `model` is served by; empty when the endpoint was given ad hoc.
+    std::string serviceName;
     std::string commonSystemPrompt;
     std::string workspaceInstructions;
     unsigned    maxTokens = 0;
+    // Whether each session writes a transcript; --record off disables it.
+    bool record = true;
+    // Where transcripts go; empty means the logs/ directory beside the executable.
+    std::filesystem::path sessionDirectory{};
+    // Free-form label handed to every session identity.
+    std::string sessionTag{};
 
     // Empty unless the owners of the workspace declared how to build it.
     std::optional<BuildCommands> buildCommands;
@@ -95,6 +106,7 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
         ServiceDefinition const& service = FindService(services, options.serviceName.empty() ? DefaultServiceName : options.serviceName);
         settings.endpoint = ResolveService(service, DefaultCredentialSources());
         settings.model    = service.model;
+        settings.serviceName = service.name;
         settings.maxTokens = service.maxTokens;
     }
 
@@ -110,6 +122,10 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
     {
         settings.endpoint.port = *options.port;
     }
+
+    settings.record           = options.record;
+    settings.sessionDirectory = options.sessionDirectory;
+    settings.sessionTag       = options.sessionTag;
 
     settings.commonSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "CommonSystemPrompt.txt");
     settings.workspaceInstructions = LoadWorkspaceInstructions();
@@ -148,6 +164,9 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
                 .modelName          = settings.model,
                 .tools              = tools,
                 .maxTokens          = settings.maxTokens,
+                .identity           = SessionIdentity{ .tag = settings.sessionTag },
+                .sessionDirectory   = settings.sessionDirectory,
+                .record             = settings.record,
             }};
         },
         .fs            = std::move(fs),
@@ -177,17 +196,116 @@ int ListServices()
     return 0;
 }
 
+// Prints one line per recorded session, newest id first, then a count. Reads only
+// the manifests written by SessionRecorder; a manifest that will not parse is
+// reported as unreadable rather than skipped silently.
+int ShowSessions(CommandLineOptions const& options)
+{
+    std::filesystem::path const directory = options.sessionDirectory.empty() ? GetExecutableDirectory() / "logs" : options.sessionDirectory;
+
+    if (!std::filesystem::exists(directory) || !std::filesystem::is_directory(directory))
+    {
+        std::print("no recorded sessions in {}\n", directory.string());
+        return 0;
+    }
+
+    struct RecordedSession
+    {
+        std::string id;
+        std::string tag;
+        std::string model;
+        std::string status;
+    };
+
+    std::vector<RecordedSession> sessions;
+
+    try
+    {
+        constexpr std::string_view suffix = "_session.json";
+
+        for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(directory))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+
+            std::string const fileName = entry.path().filename().string();
+            if (!std::string_view(fileName).ends_with(suffix))
+            {
+                continue;
+            }
+
+            // The defaults describe a manifest that could not be read; the parse below overwrites them.
+            RecordedSession session{ .id = fileName.substr(0, fileName.size() - suffix.size()), .tag = "-", .model = "-", .status = "unreadable" };
+            try
+            {
+                json const manifest   = json::parse(RawReadTextFile(entry.path()));
+                json const identity   = manifest.value("identity", json::object());
+                session.id            = identity.value("id", session.id);
+                session.tag           = identity.value("tag", std::string{ "-" });
+                json const provenance = manifest.value("provenance", json::object());
+                session.model         = provenance.value("model", std::string{ "-" });
+                session.status        = manifest.value("complete", false) ? "complete" : "incomplete";
+            }
+            catch (std::exception const&)
+            {
+                // Keep the unreadable defaults so the file is visible instead of silently skipped.
+            }
+
+            sessions.push_back(std::move(session));
+        }
+    }
+    catch (std::filesystem::filesystem_error const& error)
+    {
+        Log(LogLevel::warning, "could not list {}: {}", directory.string(), error.what());
+    }
+
+    if (sessions.empty())
+    {
+        std::print("no recorded sessions in {}\n", directory.string());
+        return 0;
+    }
+
+    std::ranges::sort(sessions, {}, &RecordedSession::id);
+
+    std::println("{:<20}  {:<24}  {:<24}  {}", "id", "tag", "model", "status");
+    for (RecordedSession const& session : sessions)
+    {
+        std::println("{:<20}  {:<24}  {:<24}  {}", session.id, session.tag, session.model, session.status);
+    }
+    std::print("{} session(s) in {}\n", sessions.size(), directory.string());
+
+    return 0;
+}
+
+// Describes what this binary is and what it is talking to, so the orchestrator can answer
+// "which build/model/service am I?" from its own prompt instead of guessing. Only the root
+// session gets this: subagents do one job and gain nothing from it. The API key is never included.
+std::string DescribeRuntimeContext(SessionSettings const& settings)
+{
+    std::string const endpoint = std::format("{}://{}:{}{}", settings.endpoint.secure ? "https" : "http", settings.endpoint.host, settings.endpoint.port, settings.endpoint.path);
+
+    return std::format("\n\nRuntime context: you are Kern (https://github.com/TheJCAB/Kern) agent harness build `{}`. Running model `{}` via `{}`.", KernBuildId, settings.model, endpoint);
+}
+
 int Run(CommandLineOptions const& options)
 {
     SessionSettings const settings = ResolveSessionSettings(options);
 
+    // The runtime context is appended last so it is the final thing the orchestrator reads.
+    std::string const systemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions + DescribeRuntimeContext(settings);
+
     Session session{Session::Config{
         .endpointDescriptor = settings.endpoint,
         .toolContext        = MakeToolsRuntimeContext(settings),
-        .systemPrompt       = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions,
+        .systemPrompt       = systemPrompt,
         .modelName          = settings.model,
         .tools              = MainTools,
         .maxTokens          = settings.maxTokens,
+        .identity           = SessionIdentity{ .tag = settings.sessionTag },
+        .sessionDirectory   = settings.sessionDirectory,
+        .record             = settings.record,
     }};
 
     // The response is streamed to the console by Session::Prompt, so there is nothing to return.
@@ -220,11 +338,6 @@ int main(int argc, char** argv)
     {
         CommandLineOptions const options = ParseCommandLine(arguments);
 
-        if (options.logLevel)
-        {
-            SetLogLevel(*options.logLevel);
-        }
-
         switch (options.action)
         {
             case CommandLineAction::printHelp:
@@ -235,6 +348,10 @@ int main(int argc, char** argv)
             case CommandLineAction::listServices:
             {
                 return ListServices();
+            }
+            case CommandLineAction::showSessions:
+            {
+                return ShowSessions(options);
             }
             case CommandLineAction::run:
             {

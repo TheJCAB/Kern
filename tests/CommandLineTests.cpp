@@ -28,6 +28,25 @@ bool Throws(F&& f)
     return false;
 }
 
+// True only when parsing throws UsageError, as opposed to any other exception.
+template <typename F>
+bool ThrowsUsageError(F&& f)
+{
+    try
+    {
+        f();
+    }
+    catch (UsageError const&)
+    {
+        return true;
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+    return false;
+}
+
 // Builds a span-compatible vector so that the tests can pass brace lists directly.
 CommandLineOptions Parse(std::initializer_list<std::string_view> arguments)
 {
@@ -54,6 +73,12 @@ int main()
         Expect(Parse({ "--service", "foo", "--list-services" }).action == CommandLineAction::listServices, "--list-services after --service");
     }
 
+
+    std::println("Test ShowSessions");
+    {
+        Expect(Parse({ "--show-sessions" }).action == CommandLineAction::showSessions, "--show-sessions");
+        Expect(Parse({ "--show-sessions", "--model", "x" }).action == CommandLineAction::showSessions, "--show-sessions with other options");
+    }
     std::println("Test Prompt");
     {
         ExpectEqual(Parse({ "hello" }).prompt, "hello", "single positional argument");
@@ -106,6 +131,28 @@ int main()
         auto const level = Parse({ "--log-level", "debug", "hi" });
         Expect(level.logLevel.has_value(), "log level is set");
         Expect(level.logLevel == LogLevel::debug, "--log-level sets the log level");
+    }
+
+
+    std::println("Test SessionRecordingOptions");
+    {
+        Expect(!Parse({ "--record", "off", "hi" }).record, "--record off disables recording");
+        Expect(Parse({ "--record", "on", "hi" }).record, "--record on enables recording");
+        Expect(Parse({ "--record", "auto", "hi" }).record, "--record auto currently behaves as on");
+        Expect(Parse({ "hi" }).record, "recording is on by default");
+        Expect(ThrowsUsageError([&] { Parse({ "--record", "maybe", "hi" }); }), "--record rejects unknown modes");
+        Expect(ThrowsUsageError([&] { Parse({ "--record" }); }), "--record without a value");
+
+        auto const tagged = Parse({ "--session-dir", "/tmp/x", "--session-tag", "tool-schema-v3", "hi" });
+        ExpectEqual(tagged.sessionDirectory.string(), std::string("/tmp/x"), "--session-dir sets the session directory");
+        ExpectEqual(tagged.sessionTag, std::string("tool-schema-v3"), "--session-tag sets the session tag");
+        ExpectEqual(tagged.prompt, std::string("hi"), "a prompt after the session options is captured");
+        ExpectEqual(Parse({ "hi" }).sessionDirectory.string(), std::string(), "the session directory is empty by default");
+        ExpectEqual(Parse({ "hi" }).sessionTag, std::string(), "the session tag is empty by default");
+
+        auto const promptFirst = Parse({ "hi", "--session-tag", "tool-schema-v3" });
+        ExpectEqual(promptFirst.prompt, std::string("hi"), "the prompt before the session options is kept");
+        ExpectEqual(promptFirst.sessionTag, std::string("tool-schema-v3"), "--session-tag after the prompt is parsed");
     }
 
     std::println("Test UsageErrors");

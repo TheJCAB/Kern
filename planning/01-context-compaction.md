@@ -1,20 +1,20 @@
 # Context compaction design
 
 Status: **proposal, nothing implemented.** Every symbol, file and flag below that does not appear in
-the "grounded facts" list is explicitly marked *proposed*. No source file in this repository has been
-changed.
+the "grounded facts" list is explicitly marked *proposed*.
 
 Related designs: [02 Memory tool](02-memory-tool.md) (a model-authored always-resident digest, which compaction must pin), [03 Session reset](03-session-reset.md) (wholesale amnesia, the complement to elision), [04 Shared note store](04-shared-note-store.md) (out-of-context bodies whose index is resident and pinned), and [05 Memory and context programme](05-memory-and-context-programme.md) (coordinates the four designs).
 
 ## Problem
 
 `Session::Pimpl` keeps the entire conversation in `std::vector<ConversationMessage> m_conversationHistory`
-(`src/Session.cpp:737`). It is seeded with the system message in the Pimpl constructor
-(`src/Session.cpp:366`), and `Prompt` (`src/Session.cpp:371-728`) only ever *appends* to it: the
+(`src/Session.cpp:943`). It is seeded with the system message in the Pimpl constructor
+(`src/Session.cpp:417`), and `Prompt` (`src/Session.cpp:912`) only ever *appends* to it: the
 assistant message that carries `tool_calls`, then one `role="tool"` message per call
-(`src/Session.cpp:625-646`). Nothing is ever trimmed, nothing is persisted, and there is no
-context-length limit, no tokenizer and no accounting anywhere in the codebase. A long agent run
-therefore grows the log without bound.
+(`src/Session.cpp:812-825`). Nothing is ever trimmed, nothing in the conversation is persisted, and
+there is no context-length limit and no tokenizer; the session recorder keeps per-turn token usage
+and wall time as evidence (`src/SessionRecorder.h:48`), but nothing in the agent loop reads them
+back. A long agent run therefore grows the log without bound.
 
 The log is not just large, it is *redundant*:
 
@@ -55,7 +55,7 @@ Consequences, which are non-negotiable for this design:
 1. Compaction is **elision**, implemented by rewriting the message's `content` string. Messages are never
    erased from `m_conversationHistory` and never reordered.
 2. The system message is never touched: mutating it would invalidate the cache for the *entire* prefix,
-   including turn 0, and the `maxTokens` paragraph appended in the constructor (`src/Session.cpp:359-365`)
+   including turn 0, and the `maxTokens` paragraph appended in the constructor (`src/Session.cpp:409-417`)
    assumes immutability.
 3. `toolCallId` and the `toolCalls` array are *preserved verbatim*; only `content` shrinks (§6).
 4. `ConversationMessage` (`src/Session.cpp:93-99`) is a flat struct of `role`, `content`, `toolCallId`,
@@ -92,7 +92,7 @@ bool          pinned        = false;  // never elided
 `turn` is a proposed new counter in `Session::Pimpl`, incremented once per iteration of the agent loop
 in `Prompt`; it is also the value written into `response.json` bookkeeping so logs and stubs agree.
 `id` is proposed to be assigned by a single `AppendMessage(...)` helper that replaces the ad-hoc
-`m_conversationHistory.push_back(...)` calls at `src/Session.cpp:625-646` and in the tool-call branch.
+`m_conversationHistory.push_back(...)` calls at `src/Session.cpp:812-825` and in the tool-call branch.
 
 Key derivation per tool (proposed; the handlers in `src/Tools/*.h` know their own arguments, so the
 derivation belongs next to `BuildToolResponseMessage`):
@@ -180,7 +180,7 @@ in the repository, so there are two proposed sources, in priority order:
 1. A new `contextWindowTokens` field on `ServiceDefinition` (`src/Services.h:14-22`) next to the existing
    `maxTokens`, parsed out of the user-level `services.json` by the existing
    `ParseServicesConfig` (`src/Services.h:33`) and surfaced into `Session::Config` the same way
-   `maxTokens` is (see the constructor paragraph at `src/Session.cpp:359-365`).
+   `maxTokens` is (see the constructor paragraph at `src/Session.cpp:409-417`).
 2. A proposed `--context-window <tokens>` CLI flag in `src/CommandLine.cpp`, overriding the service
    value, for services whose window the config does not know.
 
@@ -248,12 +248,12 @@ while (turn < maxTurns)
 }
 ```
 
-The `hurryMessages` escalation (`src/Session.cpp:651-703`) is unaffected: those are transient, are passed
+The `hurryMessages` escalation (`src/Session.cpp:831-883`) is unaffected: those are transient, are passed
 to `BuildPayload` and are never stored, so compaction never sees them — the same precedent that makes a
 non-persisted trailing message legal at all.
 
 New files, and the exact CMakeLists.txt change (the file list is explicit, no globbing; the entry goes
-next to `src/Session.cpp` in the `add_executable(kern ...)` list at `CMakeLists.txt:46-55`):
+next to `src/Session.cpp` in the `add_executable(kern ...)` list at `CMakeLists.txt:32-58`):
 
 ```cmake
     src/ContextCompaction.cpp   src/ContextCompaction.h
@@ -266,7 +266,7 @@ CMakeLists.txt changes for Tier 1.
 
 Never compacted, in any tier:
 
-- the system message (index 0, seeded at `src/Session.cpp:366`);
+- the system message (index 0, seeded at `src/Session.cpp:417`);
 - the last `minProtectedTurns` turns (default `3`), by `turn` value, not by message count — a single
   turn can contain many tool messages and truncating "the last N messages" would slice a batch in half;
 - memory-digest messages (unkeyed by §4) — they are the durable summary and stubbing them loses
@@ -298,7 +298,7 @@ Constraints:
 - costs one request and one extra prefill of the cluster, so it applies only when
   `minReclaim` would otherwise be missed;
 - must **never** run inside a turn that is already retrying (the escalation path at
-  `src/Session.cpp:651-703`), because a retry plus a digest request compounds latency and cost;
+  `src/Session.cpp:831-883`), because a retry plus a digest request compounds latency and cost;
 - must **degrade gracefully**: any transport error, non-200, malformed body or empty completion leaves
   the Tier 1 stubs exactly as they are — Tier 2 is strictly additive and never a precondition;
 - the digest request/response pair is logged under the same per-turn convention as a normal request.

@@ -348,12 +348,63 @@ struct Session::Pimpl
         }
     }
 
+    // Builds the recorder identity: an empty id comes from the log id, an empty role means "main".
+    static SessionIdentity MakeRecorderIdentity(Config const& config, std::string_view const logId)
+    {
+        SessionIdentity identity = config.identity;
+        if (identity.id.empty())
+        {
+            identity.id = std::string(logId);
+        }
+        if (identity.role.empty())
+        {
+            identity.role = "main";
+        }
+        return identity;
+    }
+
+    // Builds the provenance row; credential material is never recorded, so apiKey is not copied.
+    static SessionProvenance MakeRecorderProvenance(Config const& config)
+    {
+        SessionProvenance provenance;
+        provenance.modelName = config.modelName;
+        provenance.maxTokens = config.maxTokens;
+        provenance.endpoint  = json{
+            { "host"  , config.endpointDescriptor.host   },
+            { "port"  , config.endpointDescriptor.port   },
+            { "path"  , config.endpointDescriptor.path   },
+            { "secure", config.endpointDescriptor.secure },
+        };
+        return provenance;
+    }
+
+    // Builds the inputs row; the user prompt is left empty because BeginSession fills it in.
+    static SessionInputs MakeRecorderInputs(Config const& config)
+    {
+        SessionInputs inputs;
+        inputs.systemPrompt    = config.systemPrompt;
+        inputs.toolDefinitions = BuildPayloadToolDefinitions(config.tools);
+        return inputs;
+    }
+
+    // Picks the directory that receives the manifest: the configured one, or the logs directory.
+    static std::filesystem::path MakeRecorderDirectory(Config const& config)
+    {
+        return config.sessionDirectory.empty() ? std::filesystem::path(GetLogsDirectory()) : config.sessionDirectory;
+    }
+
     Pimpl(Config config)
-        : m_endpointDescriptor{ std::move(config.endpointDescriptor)     }
+        : m_endpointDescriptor{ config.endpointDescriptor               }
         , m_toolContext       { std::move(config.toolContext)            }
-        , m_modelName         { std::move(config.modelName)              }
+        , m_modelName         { config.modelName                         }
         , m_tools             { config.tools.begin(), config.tools.end() }
         , m_maxTokens         { config.maxTokens                         }
+        , m_log               {}
+        , m_recorder          { MakeRecorderIdentity(config, m_log.id),
+                                MakeRecorderProvenance(config),
+                                MakeRecorderInputs(config),
+                                MakeRecorderDirectory(config),
+                                config.record                        }
     {
         std::string systemPrompt = std::move(config.systemPrompt);
         if (m_maxTokens != 0)
@@ -366,9 +417,115 @@ struct Session::Pimpl
         m_conversationHistory.push_back({ .role = "system", .content = std::move(systemPrompt) });
 
         std::println("log id: {}", m_log.id);
+
+        // The decoding parameters actually sent; BuildPayload hard-codes streaming and only sends max_tokens when
+        // non-zero.
+        m_recorder.SetDecoding(json{ { "stream", !IsOllamaEndpoint() }, { "maxTokens", m_maxTokens } });
     }
 
-    PromptResult Prompt(std::string_view prompt, unsigned maxTurns)
+    // Writes exactly one line to the recorder's jsonl file per loop iteration from its destructor, so that a
+    // return, a continue and a throw each produce exactly one line.
+    class TurnRecord
+    {
+    public:
+        TurnRecord(SessionRecorder& recorder, unsigned turn)
+            : m_recorder{ recorder }
+        {
+            m_turn = json{ { "turn", turn } };
+        }
+
+        ~TurnRecord() noexcept
+        {
+            if (!m_recorder.Enabled())
+            {
+                return;
+            }
+            SessionRecorder::NormaliseTokenUsage(m_turn);
+            m_recorder.RecordTurn(m_turn);
+        }
+
+        void SetUsage(json const& usage)
+        {
+            if (!usage.is_object())
+            {
+                return;
+            }
+            m_turn["usage"] = usage;
+        }
+
+        void SetResponseMilliseconds(double milliseconds)
+        {
+            m_turn["responseMs"] = milliseconds;
+        }
+
+        void SetFinishReason(std::string_view reason)
+        {
+            if (reason.empty())
+            {
+                return;
+            }
+            m_turn["finishReason"] = reason;
+        }
+
+        void SetAssistantText(std::string_view text)
+        {
+            if (!text.empty())
+            {
+                m_turn["assistantText"] = text;
+            }
+            else if (m_turn.contains("finishReason"))
+            {
+                m_turn["assistantText"] = "";
+            }
+        }
+
+        void AddToolCall(json const& call)
+        {
+            if (!m_turn.contains("toolCalls"))
+            {
+                m_turn["toolCalls"] = json::array();
+            }
+            m_turn["toolCalls"].push_back(call);
+        }
+
+        void AddToolResult(std::string_view name, std::string const& result)
+        {
+            if (!m_turn.contains("toolResults"))
+            {
+                m_turn["toolResults"] = json::array();
+            }
+            json& entry = m_turn["toolResults"].emplace_back(json{ { "tool", name } });
+            // The full result stays in the conversation; the turn line keeps a truncated copy.
+            try
+            {
+                json const parsed = json::parse(result);
+                if (parsed.is_object() && parsed.contains("error"))
+                {
+                    entry["error"] = parsed.at("error").is_string() ? parsed.at("error").get<std::string>() : parsed.at("error").dump();
+                }
+                else
+                {
+                    entry["result"] = parsed;
+                }
+            }
+            catch (json::exception const&)
+            {
+                entry["result"] = result;
+            }
+            entry["resultLength"] = result.size();
+            if (entry.contains("result") && entry["result"].is_string() && entry["result"].get_ref<std::string const&>().size() > 2000)
+            {
+                entry["result"].get_ref<std::string&>().resize(2000);
+                entry["resultTruncated"] = true;
+            }
+        }
+
+    private:
+        SessionRecorder& m_recorder;
+        json             m_turn;
+    };
+
+    PromptResult RunPrompt(std::string_view prompt, unsigned maxTurns)
     {
         if (prompt.empty())
         {
@@ -386,6 +543,8 @@ struct Session::Pimpl
         constexpr unsigned maxHurryRetries = 2;
         for (unsigned turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)
         {
+            TurnRecord turnRecord{ m_recorder, turn };
+            json accumulatedUsage = json::object();
             std::println("===============================\nTurn {} [{}]", turn, m_log.id);
             try
             {
@@ -397,7 +556,9 @@ struct Session::Pimpl
                 ModelResponse modelResponse;
                 if (IsOllamaEndpoint())
                 {
+                    auto const requestStart = std::chrono::steady_clock::now();
                     HttpResult const httpResult = HttpPost(m_endpointDescriptor, payload, [](auto){});
+                    turnRecord.SetResponseMilliseconds(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - requestStart).count());
                     if (IsLogEnabled(LogLevel::debug))
                     {
                         WriteLogFile(m_log, "response_raw", httpResult.body, "txt");
@@ -407,6 +568,10 @@ struct Session::Pimpl
                     //std::cout << "Response: " << responseBody << std::endl;
 
                     json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
+                    if (response.contains("usage"))
+                    {
+                        turnRecord.SetUsage(response.at("usage"));
+                    }
                     WriteLogFile(m_log, "response", response.dump(2));
 
                     modelResponse = ExtractModelContent(response);
@@ -427,6 +592,10 @@ struct Session::Pimpl
                             if (jsonEvent.is_discarded())
                             {
                                 Log(LogLevel::error, "SSE event is not valid JSON: {}", event.substr(0, 500));
+                            }
+                            if (jsonEvent.contains("usage") && jsonEvent.at("usage").is_object())
+                            {
+                                accumulatedUsage = jsonEvent.at("usage");
                             }
                             auto modelResponseDelta = ExtractModelContentDelta(jsonEvent);
                             if (!modelResponseDelta.reasoning.empty())
@@ -466,7 +635,9 @@ struct Session::Pimpl
                             std::cout.flush();
                         };
 
+                    auto const requestStart = std::chrono::steady_clock::now();
                     HttpResult const httpResult = HttpPost(m_endpointDescriptor, payload, sseCallback);
+                    turnRecord.SetResponseMilliseconds(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - requestStart).count());
                     if (IsLogEnabled(LogLevel::debug))
                     {
                         WriteLogFile(m_log, "response_raw", httpResult.body, "txt");
@@ -524,6 +695,13 @@ struct Session::Pimpl
                 {
                     std::println("\nreasoning> {}\n", modelResponse.reasoning);
                 }
+
+                if (accumulatedUsage.is_object() && !accumulatedUsage.empty())
+                {
+                    turnRecord.SetUsage(accumulatedUsage);
+                }
+                turnRecord.SetFinishReason(to_string(modelResponse.reason));
+                turnRecord.SetAssistantText(modelResponse.content);
 
                 if (!modelResponse.content.empty())
                 {
@@ -625,7 +803,9 @@ struct Session::Pimpl
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
                         std::println("\ntool call [{}]> {}({})", toolCall.id, toolCall.name, OneLine(toolCall.arguments.dump(), 60));
+                        turnRecord.AddToolCall(json{ { "id", toolCall.id }, { "name", toolCall.name }, { "arguments", toolCall.arguments } });
                         std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, m_tools);
+                        turnRecord.AddToolResult(toolCall.name, toolResult);
                         std::println("\ntool result [{}]> {} -> {}", toolCall.id, toolCall.name, OneLine(toolResult, 60));
                         if (IsOllamaEndpoint())
                         {
@@ -727,6 +907,32 @@ struct Session::Pimpl
         return  { .ok = false, .errorCode = "too_many_turns", .content = "The model took too many turns", .turnsUsed = maxTurns };
     }
 
+    // Writes the session manifest before the first request and rewrites it with the outcome afterwards; a throw
+    // leaves the manifest marked incomplete, which the harness refuses.
+    PromptResult Prompt(std::string_view prompt, unsigned maxTurns)
+    {
+        m_recorder.BeginSession(maxTurns, prompt);
+
+        PromptResult result{};
+        try
+        {
+            result = RunPrompt(prompt, maxTurns);
+        }
+        catch (std::exception const& error)
+        {
+            m_recorder.EndSession(json{
+                { "ok"       , false          },
+                { "errorCode", "exception"    },
+                { "content"  , error.what()   },
+                { "turnsUsed", 0u             },
+            });
+            throw;
+        }
+
+        m_recorder.EndSession(static_cast<json>(result));
+        return result;
+    }
+
 
     Endpoint                         m_endpointDescriptor;
     ToolsRuntimeContext              m_toolContext;
@@ -736,6 +942,8 @@ struct Session::Pimpl
 
     std::vector<ConversationMessage> m_conversationHistory;
     LogFileState                     m_log;
+    // Writes <id>_session.json beside the per-turn log files; best effort, never throws.
+    SessionRecorder                  m_recorder;
 };
 
 Session::PromptResult::operator nlohmann::json() const

@@ -1,6 +1,6 @@
 # Memory and context programme
 
-Status: **proposal, nothing implemented.** This document coordinates the four designs numbered 01 to 04, and no source file in this repository has been changed to match them.
+Status: **proposal, nothing implemented.** This document coordinates the four designs numbered 01 to 04.
 
 Related designs: [01 Context compaction](01-context-compaction.md) — supersession rules, stub format, trigger; [02 Memory tool](02-memory-tool.md) — digest injection, budget and eviction; [03 Session reset](03-session-reset.md) — where a reset may execute, what survives; [04 Shared note store](04-shared-note-store.md) — index in the prompt, tree sharing, naming discipline. Each of the four links back to this programme.
 

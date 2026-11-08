@@ -44,6 +44,7 @@ add_executable(kern
     src/XmlToolCallParser.cpp   src/XmlToolCallParser.h
 
     src/Session.cpp         src/Session.h
+    src/SessionRecorder.cpp src/SessionRecorder.h
     src/Tools/build.h
     src/Tools/edit_file_lines.h
     src/Tools/glob.h

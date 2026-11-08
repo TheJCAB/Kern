@@ -2,11 +2,13 @@
 
 #include "FileUtilities.h"
 #include "NetworkUtilities.h"
+#include "SessionRecorder.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 
 #include <nlohmann/json.hpp>
 
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -33,6 +35,14 @@ public:
         std::string                     modelName;
         std::span<ToolDefinition const> tools;
         unsigned                        maxTokens = 0; // 0 = don't send a limit
+        // Which session this is: an empty `id` means "derive it from the log id", an empty `role`
+        // means "main", and `tag` is a free-form label such as `tool-schema-v3`.
+        SessionIdentity identity{};
+        // Where the transcript manifest and turn file are written; empty means the `logs/`
+        // directory beside the executable.
+        std::filesystem::path sessionDirectory{};
+        // Whether to write a session transcript for this session.
+        bool record = true;
     };
     Session(Config);
     ~Session();

@@ -7,7 +7,7 @@ Related designs: [01 Context compaction](01-context-compaction.md) (mechanical e
 ## Problem
 
 Reasoning is captured but discarded: only `content` reaches `Session::Pimpl::m_conversationHistory`
-(`src/Session.cpp:737`), and that history is never persisted across sessions. So a decision or invariant the
+(`src/Session.cpp:943`), and that history is never persisted across sessions. So a decision or invariant the
 model derived — "the digest must stay prefix-cache stable", "`ToolDefinition::callTool` is a reference, so
 handlers must be lvalues" — lives only in the message that produced it. Once the motivating tool result
 scrolls out of the window, or the history is compacted, the derivation is gone: the model re-derives it, or
@@ -40,7 +40,7 @@ Rule of thumb: if the model would be wrong without it, memory; if it merely migh
 
 Proposed: new `src/Memory.{h,cpp}` declaring `class MemoryStore`, held as `std::shared_ptr<MemoryStore>` in
 `ToolsRuntimeContext` (`src/ToolUtilities.h:56-67`), constructed beside the other members in `main.cpp`
-(`src/main.cpp:141-160`). A `shared_ptr` because the context is copied **by value** into child sessions —
+(`src/main.cpp:153-175`). A `shared_ptr` because the context is copied **by value** into child sessions —
 `CreateNewSessionFunction` takes `ToolsRuntimeContext const&` and `Session::Config.toolContext` copies it —
 so a value member would give every subagent a private empty store, and a reference would dangle. The whole
 session tree must share one store; the shared pointer makes that a construction-time guarantee.
@@ -74,7 +74,7 @@ private:
 ```
 
 Concurrency: single-threaded per session today — `CallTool` (`src/ToolUtilities.cpp:233-251`) runs
-synchronously inside `Session::Pimpl::Prompt` (`src/Session.cpp:371-728`) — so no locking is proposed. If
+synchronously inside `Session::Pimpl::Prompt` (`src/Session.cpp:912`) — so no locking is proposed. If
 tool calls ever parallelize, or one store is shared by concurrent sessions, mutations must take a
 `std::mutex`, `Digest()` must copy under it, and `Add`'s capacity check plus insert must be one critical
 section so `m_maxEntries` cannot be exceeded.
@@ -152,7 +152,7 @@ Examples — `invalid_argument` comes from throwing `ToolArgumentError`, the res
 | option | shape | verdict |
 | --- | --- | --- |
 | (a) extra `role="system"` message after the main system prompt | static history position, must be kept in sync with the store | Rejected: two system messages invite provider-specific merging, and any store change invalidates the cache from that point on. |
-| (b) transient trailing message via `BuildPayload(transientMessages)` | appended after all history, never stored | **Recommended** — the precedent already exists for the "hurry up" path (`src/Session.cpp:651-703`). |
+| **Recommended** — the precedent already exists for the "hurry up" path (`src/Session.cpp:831-883`). |
 | (c) rewriting the system prompt | text changes with the store | Rejected: the system prompt is the cache prefix; editing it on every `add` invalidates the entire cached prefix. |
 
 Option (b) keeps the prefix stable: history and system prompt are untouched, and the only variable text is
@@ -195,7 +195,7 @@ the boundary unless it is put there explicitly. Three proposed ways to do that:
 | (iii) hand the child the parent's store directly | the same `std::shared_ptr<MemoryStore>` already in `ToolsRuntimeContext` | **Recommended** — the context is *copied* into the child, so the `shared_ptr` copies with it and the store is shared for free; nothing to thread, nothing to escape. |
 
 Option (iii) is not just simplest, it is already implied by §3's data model: `toolContext` is copied by value
-into the child (`src/ToolUtilities.h:54`, `src/main.cpp:126-161`) and the store is a `shared_ptr`, so a child
+into the child (`src/ToolUtilities.h:54`, `src/main.cpp:153-175`) and the store is a `shared_ptr`, so a child
 created through the existing `CreateNewSessionFunction` reads and writes the *same* entries with zero new
 plumbing, and its digest appears through the normal §6 path. That makes (i) and (ii) unnecessary; keep the
 digest out of `prompt` so the parent's text stays the only task input.
@@ -243,7 +243,7 @@ data.
 ## Persistence
 
 Proposed: a JSON file per session, `logs/memory-<sessionId>.json`, written through `context.fs`
-(`ValidatedFileSystem::WriteTextFile`, `src/FileValidation.h:23`) so path validation applies and `Kern.build.json`,
+(`ValidatedFileSystem::WriteTextFile`, `src/FileValidation.h:45`) so path validation applies and `Kern.build.json`,
 `.git` and `build/` stay unreachable. `logs/` beside the executable is already the convention for per-turn
 artifacts — `WriteLogFile` (`src/Session.cpp:80`), `BuildLogPath` (`:326`), `GetLogsDirectory` (`:316`) — so a
 sibling file costs nothing and never lands under `build/`. Proposed alternative: a `state/` directory if `logs/`
@@ -290,8 +290,8 @@ is indistinguishable from a fact.
 
 Proposed edits, all mechanical:
 
-- `CMakeLists.txt:46-55` (the `src/Tools/*.h` header block): add `src/Tools/memory.h`.
-- `src/main.cpp:42-47`: add `Memory::Definition` to `constexpr ToolDefinition MainTools[]`, and
+- `CMakeLists.txt:48-56` (the `src/Tools/*.h` header block): add `src/Tools/memory.h`.
+- `src/main.cpp:44-49`: add `Memory::Definition` to `constexpr ToolDefinition MainTools[]`, and
   `#include "Tools/memory.h"` with the other tool includes.
 - `src/Tools/research.h:21` and `src/Tools/implement.h:25`: add `Memory::Definition` to each child tool array
   (and the include) so subagents can read and write the shared store (§7).

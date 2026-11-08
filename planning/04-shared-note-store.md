@@ -57,7 +57,7 @@ handles it.
 
 Proposed: new `src/Notes.{h,cpp}` declaring `class NoteStore`, held as `std::shared_ptr<NoteStore>` inside
 `ToolsRuntimeContext` (`src/ToolUtilities.h:56-67`), constructed beside the other members in `main.cpp`
-(`src/main.cpp:126-161`). The `shared_ptr` is the whole sharing mechanism: the context is COPIED BY VALUE
+(`src/main.cpp:153-175`). The `shared_ptr` is the whole sharing mechanism: the context is COPIED BY VALUE
 into child sessions (`CreateNewSessionFunction` takes it by const reference, `src/ToolUtilities.h:54`), so
 a value member would give every subagent a private empty store and a reference would dangle. Because
 `research`/`implement` already pass their `ToolsRuntimeContext` down, notes are shared across the entire
@@ -101,7 +101,7 @@ and the API do not change.
 
 | | Single `notes` tool with `operation` | Three tools (`note_write`/`note_read`/`note_erase`) |
 | --- | --- | --- |
-| Tool definitions | 1 (`ToolDefinition` in every `MainTools[]` and child array) | 3, repeated in `src/main.cpp:42-47`, `research.h:21`, `implement.h:25` |
+| Tool definitions | 1 (`ToolDefinition` in every `MainTools[]` and child array) | 3, repeated in `src/main.cpp:44-49`, `research.h:21`, `implement.h:25` |
 | Schema tokens | one shared block, same shape as the `memory` tool | three descriptions, three schemas |
 | Model choice | one tool to remember, one `operation` value | three names to remember, easier to pick wrong |
 | Validation | one handler, one `switch`, one error vocabulary | three handlers, duplicated key/size checks |
@@ -177,7 +177,7 @@ about *where* it sits in the payload.
 | | (a) Dedicated `role="system"` message | (b) Transient trailing message | (c) Folded into the memory digest (design 02) |
 | --- | --- | --- | --- |
 | Mechanism | extra system message built by `BuildPayload` | reuse `BuildPayload(transientMessages)` (`src/Session.cpp:101-148`) | prefix of the `memory` block |
-| Precedent | none: a new message shape in every provider path | the "hurry up" path (`src/Session.cpp:651-703`) | none yet |
+| Precedent | none: a new message shape in every provider path | the "hurry up" path (`src/Session.cpp:831-883`) | none yet |
 | Stored? | must not be, or N stale copies | no: never appended to `m_conversationHistory` | no |
 | Coupling | touches every provider's message assembly | confined to `Session::Pimpl` | entangles two features that should fail independently |
 | Weight | system-level, competes with the real system prompt | user-turn-level: "here is current state" | system-level, inside a block already at budget |
@@ -301,9 +301,9 @@ Proposed; none of this is implemented. No globbing, so every list below is a req
 
 **(a) Registration**
 
-- `CMakeLists.txt:46-55` header block: add `src/Tools/notes.h`; `CMakeLists.txt:32-44` core block: add
+- `CMakeLists.txt:48-56` header block: add `src/Tools/notes.h`; `CMakeLists.txt:32-44` core block: add
   `src/Notes.cpp` and `src/Notes.h`.
-- `Tools::notes::def` into `MainTools[]` (`src/main.cpp:42-47`), `src/Tools/research.h:21` and
+- `Tools::notes::def` into `MainTools[]` (`src/main.cpp:44-49`), `src/Tools/research.h:21` and
   `src/Tools/implement.h:25`.
 - `#include <Notes.h>` in `src/Notes.cpp`, `src/main.cpp`, `src/Tools/notes.h`, and `src/ToolUtilities.h` (for
   the `shared_ptr` member); `#include "notes.h"` beside the other quoted includes in `research.h`/`implement.h`.

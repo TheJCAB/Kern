@@ -62,6 +62,7 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
     // Mode flags are resolved before anything else is validated, so that
     // 'kern --help --bogus' prints the help instead of complaining about '--bogus'.
     bool listServices = false;
+    bool showSessions = false;
     for (auto const argument : arguments)
     {
         if (argument == "--")
@@ -74,10 +75,15 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
             return CommandLineOptions{ .action = CommandLineAction::printHelp };
         }
         listServices = listServices || argument == "--list-services";
+        showSessions = showSessions || argument == "--show-sessions";
     }
     if (listServices)
     {
         return CommandLineOptions{ .action = CommandLineAction::listServices };
+    }
+    if (showSessions)
+    {
+        return CommandLineOptions{ .action = CommandLineAction::showSessions };
     }
 
     CommandLineOptions options;
@@ -147,6 +153,31 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
                 throw UsageError{std::format("Invalid --log-level argument: {} (use off, error, warning, info, debug or trace)", value)};
             }
         }
+        else if (argument == "--record")
+        {
+            std::string_view const value = NextArgument(arguments, i, "--record");
+            if (value == "off")
+            {
+                options.record = false;
+            }
+            else if (value == "on" || value == "auto")
+            {
+                // 'auto' currently behaves as 'on', matching the design's default.
+                options.record = true;
+            }
+            else
+            {
+                throw UsageError{std::format("Invalid --record argument: {} (use on, off or auto)", value)};
+            }
+        }
+        else if (argument == "--session-dir")
+        {
+            options.sessionDirectory = std::string(NextArgument(arguments, i, "--session-dir"));
+        }
+        else if (argument == "--session-tag")
+        {
+            options.sessionTag = std::string(NextArgument(arguments, i, "--session-tag"));
+        }
         else if (argument == "--")
         {
             // Everything that follows is prompt text, even if it looks like an option.
@@ -175,14 +206,18 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
 
 void PrintUsage(std::FILE* stream)
 {
-    std::print(stream, "Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--list-services] [--] PROMPT\n");
+    std::print(stream, "Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--record MODE] [--session-dir PATH] [--session-tag TEXT] [--list-services] [--show-sessions] [--] PROMPT\n");
     std::print(stream, "  --help, -h        show this help and exit\n");
     std::print(stream, "  --list-services   list known services and exit\n");
+    std::print(stream, "  --show-sessions   print a table of recorded sessions with their tags, model and completion flag\n");
     std::print(stream, "  --log-level LEVEL diagnostics on stderr: off, error, warning (default), info, debug, trace\n");
     std::print(stream, "  --service NAME    use a service from the built-ins or the services file ({})\n", GetServicesConfigPath().string());
     std::print(stream, "  --endpoint URL    use an ad-hoc endpoint that needs no API key ('ollama' and 'llama.cpp' are accepted as service names)\n");
     std::print(stream, "  --model NAME      override the model name reported by the service\n");
     std::print(stream, "  --port N          override the port of the resolved endpoint\n");
     std::print(stream, "  --max-turns N     give up after N agent turns (default {})\n", DefaultMaxTurns);
+    std::print(stream, "  --record MODE     session recording: on (default), off or auto (currently the same as on)\n");
+    std::print(stream, "  --session-dir PATH  write transcripts to PATH instead of the logs/ directory beside the executable\n");
+    std::print(stream, "  --session-tag TEXT  label recorded runs with TEXT, e.g. tool-schema-v3\n");
     std::print(stream, "  --                treat all remaining arguments as part of PROMPT\n");
 }

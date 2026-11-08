@@ -96,3 +96,15 @@ target_include_directories(tool_feedback_tests PRIVATE ../src)
 target_link_libraries(tool_feedback_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME tool_feedback_tests COMMAND tool_feedback_tests)
+
+add_executable(session_recorder_tests
+    SessionRecorderTests.cpp
+    ../src/SessionRecorder.cpp
+    ../src/FileUtilities.cpp
+    ../src/Logging.cpp
+)
+
+target_include_directories(session_recorder_tests PRIVATE ../src)
+target_link_libraries(session_recorder_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME session_recorder_tests COMMAND session_recorder_tests)

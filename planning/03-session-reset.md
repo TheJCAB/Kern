@@ -5,8 +5,8 @@ Status: proposal, nothing implemented. Anything not verified against existing co
 Related designs: [01 Context compaction](01-context-compaction.md) (the cheap, frequent, additive complement that elides rather than discards), [02 Memory tool](02-memory-tool.md) (the always-resident digest a reset may carry across with `keep_memory`), [04 Shared note store](04-shared-note-store.md) (out-of-context bodies and a resident index that survive a reset wholesale), and [05 Memory and context programme](05-memory-and-context-programme.md) (coordinates the four designs).
 
 ## Problem
-`Prompt` (`src/Session.cpp:371-728`) only appends: the assistant `tool_calls` message, then one
-`role="tool"` message per call (`src/Session.cpp:625-646`). A long run carries its whole traversal — dead
+`Prompt` (`src/Session.cpp:912`) only appends: the assistant `tool_calls` message, then one
+`role="tool"` message per call (`src/Session.cpp:812-825`). A long run carries its whole traversal — dead
 ends, superseded file versions, exploratory reads, builds later redone — yet the useful payload of a
 200-message history is usually a dozen facts. Compaction (design 01) shrinks that mass but preserves
 *narrative continuity*: it keeps the shape of the traversal and only elides the bulk. Once a task changes
@@ -23,7 +23,7 @@ own replacement context — no second summarizer call, no heuristic selection.
 A tool call runs *inside* the turn loop, between pushing the assistant message carrying `tool_calls` and
 pushing the `role="tool"` results. The OpenAI dialect requires every `assistant.tool_calls[].id` to be
 answered by a matching `role="tool"` message, and the loop pushes those results
-(`src/Session.cpp:625-646`) **after** the handler returns (via `CallTool`, `src/ToolUtilities.cpp:233-251`).
+(`src/Session.cpp:812-825`) **after** the handler returns (via `CallTool`, `src/ToolUtilities.cpp:233-251`).
 A handler that cleared history itself would leave unanswered `tool_calls` (reset before the batch) or
 orphan `role="tool"` messages (reset after) — request-shape errors, not merely bad content. So the reset
 is **deferred**: the handler sets a flag, honoured only once the whole tool-result batch is appended.
@@ -39,7 +39,7 @@ inline json ResetSessionTool(json const& arguments, ToolsRuntimeContext const& c
         { "__kern_deferred_reset", newPrompt },   // reserved key, stripped by the loop (see Registration)
     };
 }
-// proposed: src/Session.cpp, immediately after the tool-result loop at :646
+// proposed: src/Session.cpp, immediately after the tool-result loop at :826
 if (m_pendingReset) {                     // std::optional<std::string>, Session::Pimpl member
     ApplyPendingReset(*m_pendingReset);    // keep history[0], push one user message; clears hurry state
     m_pendingReset.reset();
@@ -84,17 +84,17 @@ exists to protect); missing or non-string `new_prompt` -> `"invalid_argument"` (
 | Artifact | Fate |
 | --- | --- |
 | `m_conversationHistory` beyond `[0]` | dropped: assistant messages, tool calls, tool results, nudges |
-| System message `[0]` | kept verbatim, incl. the max_tokens paragraph (`src/Session.cpp:359-365`) |
+| System message `[0]` | kept verbatim, incl. the max_tokens paragraph (`src/Session.cpp:409-417`) |
 | Memory store (design 02) | kept iff `keep_memory` (default true) |
 | Note store (design [04 Shared note store](04-shared-note-store.md)) | kept iff `keep_notes` (default true) |
 | Turn counter | **kept** — reset refunds nothing (next section) |
 | Logs | kept, append-only; writes `logs/<id>_<NNN>_reset.json` |
 | File system state | untouched — the reset is about context, not the workspace |
-| `hurryMessages`/`hurryRetries` (`:382-386`) | cleared: they describe the old transcript |
+| `hurryMessages`/`hurryRetries` (`:541-543`) | cleared: they describe the old transcript |
 
 ## Why the turn counter must not be refunded
-`for (unsigned turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)` (`src/Session.cpp:387`) with the
-exhaustion return `"too_many_turns"` (`:727`) is the only termination guarantee in the loop. A refund
+`for (unsigned turn = 0; turn < maxTurns; ++turn, ++m_log.sequence)` (`src/Session.cpp:544`) with the
+exhaustion return `"too_many_turns"` (`:907`) is the only termination guarantee in the loop. A refund
 would let a model reset every turn forever: the loop never reaches `maxTurns` and the session bills until
 cancelled. The loop continues with the same `turn`; `turnsUsed` counts all turns. Additionally cap resets
 per session (proposed `MaxResets = 3`) and return `errorCode "too_many_resets"`.
@@ -110,12 +110,12 @@ per session (proposed `MaxResets = 3`) and return `errorCode "too_many_resets"`.
 
 ```txt
 Task: add a --no-log flag to kern. Build is green as of now.
-Verified: option list ends at src/CommandLine.cpp:88; --model parsing at :61 is the pattern to copy.
+Verified: option list ends at src/CommandLine.cpp:205; --model parsing at :141-144 is the pattern to copy.
 Assumed: no test asserts the full option set (unchecked).
 Decisions: flag named --no-log, no short form, logging defaults on.
 Plan: 1) bool noLog in Options 2) parse "--no-log" 3) gate LogFileState in Pimpl 4) README 5) build.
-Open: whether the log id is printed unconditionally (src/Session.cpp:368).
-Reopen: src/CommandLine.h, src/CommandLine.cpp:55-95, src/Session.cpp:340-370.
+Open: whether the log id is printed unconditionally (src/Session.cpp:419).
+Reopen: src/CommandLine.h, src/CommandLine.cpp:60-205, src/Session.cpp:396-419.
 ```
 Good: a state delta a fresh reader can act on — every line verified, decided, or planned.
 ```txt
@@ -130,9 +130,9 @@ Bad: a status report that presumes the reader saw the work — exactly what a re
 Children created through `CreateNewSessionFunction` (`src/ToolUtilities.h:54`) start with no history, so
 no reset is needed to isolate them; the feature pays off in long-running orchestrators, and inside 50-turn
 `SubagentMaxTurns` (`src/ToolUtilities.h:46`) sessions that burn turns exploring before a mechanical edit
-phase. The pending flag must live **per session**, in `Session::Pimpl` (`src/Session.cpp:731-739`) — never
+phase. The pending flag must live **per session**, in `Session::Pimpl` (`src/Session.cpp:54`) — never
 in `ToolsRuntimeContext`, copied by value into every child (`src/ToolUtilities.h:56-67`, built at
-`src/main.cpp:126-161`); a flag there would let a child clear its parent's history.
+`src/main.cpp:153-175`); a flag there would let a child clear its parent's history.
 
 ## Interaction with compaction
 Complementary ([01 Context compaction](01-context-compaction.md)); compaction is cheap, frequent and lossless-ish, reset
@@ -159,12 +159,12 @@ do not re-inject it as `assistant` text.
 | Site | Edit |
 | --- | --- |
 | `src/Tools/reset_session.h` | new header: `Handler`, `constexpr ToolParameter Params[]`, `constexpr ToolDefinition Definition` |
-| `CMakeLists.txt:46-55` | add `src/Tools/reset_session.h` to the header block |
-| `src/main.cpp:42-47` | add `reset_session` to `constexpr ToolDefinition MainTools[]` |
+| `CMakeLists.txt:48-56` | add `src/Tools/reset_session.h` to the header block |
+| `src/main.cpp:44-49` | add `reset_session` to `constexpr ToolDefinition MainTools[]` |
 | `src/Tools/research.h:21` / `implement.h:25` | optional: a subagent may need it; weigh `SubagentMaxTurns` against one more tool's tokens in every child prompt |
-| `Session::Pimpl` (`src/Session.cpp:731-739`) | `std::optional<std::string> m_pendingReset;`, `unsigned m_resetCount = 0;` |
+| `Session::Pimpl` (`src/Session.cpp:54`) | `std::optional<std::string> m_pendingReset;`, `unsigned m_resetCount = 0;` |
 | `Session::Pimpl` | `void ApplyPendingReset(std::string newPrompt);` |
-| `src/Session.cpp:625-646` | after the tool-result loop, apply `m_pendingReset` |
+| `src/Session.cpp:826` | after the tool-result loop, apply `m_pendingReset` |
 | `CallTool` result handling | strip `"__kern_deferred_reset"` before `BuildToolResponseMessage` |
 
 The indirection is forced by the ABI: `ToolCallable` returns only `json` and takes `ToolsRuntimeContext
@@ -192,7 +192,7 @@ re-validates it, sets `m_pendingReset`, and strips the key so the model never se
   make it visible, not impossible. `reason` is self-reported.
 - **Lost constraint.** A rule stated once inside a tool result is gone if the model omits it; no safety
   net beyond `keep_notes`. **Reset thrash** — reset then re-reading everything dropped — is net negative.
-- **Hurry messages.** The transients at `src/Session.cpp:651-703` describe the old output and must be
+- **Hurry messages.** The transients at `src/Session.cpp:831-883` describe the old output and must be
   cleared on reset, else the next request mixes a fresh prompt with a stale nudge.
 - **Edge cases.** Two resets in one batch: last wins, one counted (proposed); a compaction and a reset
   both pending for a turn: the reset wins and compaction is skipped.

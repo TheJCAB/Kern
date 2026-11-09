@@ -155,7 +155,12 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
     fs.AddProtectedPath(std::filesystem::current_path() / VersionControlDirectoryName);
 
     return ToolsRuntimeContext{
-        .createNewSession = [settings = std::move(settings)](ToolsRuntimeContext const& context, std::string_view systemPrompt, std::span<ToolDefinition const> tools)
+        .createNewSession = [settings = std::move(settings)](
+            ToolsRuntimeContext const&      context,
+            std::string_view                parentSessionId,
+            std::string_view                role,
+            std::string_view                systemPrompt,
+            std::span<ToolDefinition const> tools)
         {
             return Session{Session::Config{
                 .endpointDescriptor = settings.endpoint,
@@ -164,7 +169,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
                 .modelName          = settings.model,
                 .tools              = tools,
                 .maxTokens          = settings.maxTokens,
-                .identity           = SessionIdentity{ .tag = settings.sessionTag },
+                .identity           = SessionIdentity{ .parentId{ parentSessionId }, .role{ role }, .tag = settings.sessionTag },
                 .sessionDirectory   = settings.sessionDirectory,
                 .record             = settings.record,
             }};
@@ -303,7 +308,7 @@ int Run(CommandLineOptions const& options)
         .modelName          = settings.model,
         .tools              = MainTools,
         .maxTokens          = settings.maxTokens,
-        .identity           = SessionIdentity{ .tag = settings.sessionTag },
+        .identity           = SessionIdentity{ .role = "main", .tag = settings.sessionTag },
         .sessionDirectory   = settings.sessionDirectory,
         .record             = settings.record,
     }};

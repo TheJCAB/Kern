@@ -53,7 +53,7 @@ std::string TruncateBuildOutput(std::string const& output, bool& truncated)
 // their working directories all come from the workspace declaration, never from the model: this
 // tool takes no arguments at all, so nothing the model writes can ever reach a command line.
 // The declared commands run in order and the build stops at the first command that fails.
-inline json BuildTool(json const& /*arguments*/, ToolsRuntimeContext const& context)
+inline json BuildTool(json const& /*arguments*/, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     if (!context.buildCommands.has_value())
     {

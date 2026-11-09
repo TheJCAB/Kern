@@ -25,19 +25,17 @@
 
 struct Session::Pimpl
 {
-    // Builds the recorder identity: an empty id comes from the log id, an empty role means "main".
-    static SessionIdentity MakeRecorderIdentity(Config const& config, std::string_view const logId)
+    // Builds a prefix for recorder log files.
+    static std::string MakeLogPrefix(SessionIdentity const& identity)
     {
-        SessionIdentity identity = config.identity;
-        if (identity.id.empty())
+        if (identity.parentId.empty())
         {
-            identity.id = std::string(logId);
+            return std::format("{}_{}", identity.id, identity.role);
         }
-        if (identity.role.empty())
+        else
         {
-            identity.role = "main";
+            return std::format("{}_{}_{}", identity.parentId, identity.id, identity.role);
         }
-        return identity;
     }
 
     // Builds the provenance row; credential material is never recorded, so apiKey is not copied.
@@ -71,14 +69,15 @@ struct Session::Pimpl
     }
 
     Pimpl(Config config)
-        : m_endpointDescriptor{ config.endpointDescriptor               }
+        : m_endpointDescriptor{ config.endpointDescriptor                }
         , m_toolContext       { std::move(config.toolContext)            }
         , m_modelName         { config.modelName                         }
         , m_tools             { config.tools.begin(), config.tools.end() }
         , m_maxTokens         { config.maxTokens                         }
-        , m_log               {}
+        , m_id                { config.identity                          }
+        , m_log               { MakeRecorderDirectory(config), MakeLogPrefix(config.identity) }
         , m_transport         { m_endpointDescriptor, m_log              }
-        , m_recorder          { MakeRecorderIdentity(config, m_log.Id()),
+        , m_recorder          { config.identity,
                                 MakeRecorderProvenance(config),
                                 MakeRecorderInputs(config),
                                 MakeRecorderDirectory(config),
@@ -143,7 +142,7 @@ struct Session::Pimpl
                 if (!modelResponse.content.empty())
                 {
                     // See if we got an old-school textual tool call.
-                    auto toolResponse = ParseToolCall(modelResponse.content, m_toolContext, m_tools);
+                    auto toolResponse = ParseToolCall(modelResponse.content, m_toolContext, m_id.id, m_tools);
                     if (toolResponse)
                     {
                         auto& toolResult = toolResponse.value();
@@ -225,7 +224,7 @@ struct Session::Pimpl
                     {
                         std::println("\ntool call [{}]> {}({})", toolCall.id, toolCall.name, OneLine(toolCall.arguments.dump(), 60));
                         turnRecord.AddToolCall(json{ { "id", toolCall.id }, { "name", toolCall.name }, { "arguments", toolCall.arguments } });
-                        std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, m_tools);
+                        std::string toolResult = CallTool(toolCall.name, toolCall.arguments, m_toolContext, m_id.id, m_tools);
                         turnRecord.AddToolResult(toolCall.name, toolResult);
                         std::println("\ntool result [{}]> {} -> {}", toolCall.id, toolCall.name, OneLine(toolResult, 60));
                         m_conversationHistory.push_back(MakeToolResultMessage(toolCall.id, toolResult));
@@ -299,6 +298,7 @@ struct Session::Pimpl
     unsigned                         m_maxTokens = 0;
 
     std::vector<ConversationMessage> m_conversationHistory;
+    SessionIdentity                  m_id;
     LogFile                          m_log;
     ChatTransport                    m_transport;
     // Writes <id>_session.json beside the per-turn log files; best effort, never throws.

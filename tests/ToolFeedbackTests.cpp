@@ -37,7 +37,7 @@ int main()
             { "start_line", 2             },
             { "content"   , "BETA"        },
             { "expect"    , "betaX"       },
-        }, context);
+        }, context, "");
 
         ExpectEqual(result["success"].get<bool>(), false, "a mismatched expect must report failure");
         ExpectEqual(result.size(), std::size_t{ 9 }, "the mismatch result must carry exactly nine keys");
@@ -88,7 +88,7 @@ int main()
             { "start_line", 2             },
             { "content"   , "BETA"        },
             { "expect"    , "beta"        },
-        }, context);
+        }, context, "");
 
         ExpectEqual(result["success"].get<bool>(), true, "a matching expect must apply the edit");
 
@@ -133,7 +133,7 @@ int main()
             { "operation" , "insert"            },
             { "start_line", 3                   },
             { "content"   , "x\ny"              },
-        }, context);
+        }, context, "");
         ExpectEqual(insertResult["success"].get<bool>(), true, "an insert before line three must succeed");
         ExpectEqual(insertResult["removed_lines"].get<std::int64_t>(), std::int64_t{ 0 }, "an insert must remove no lines");
         ExpectEqual(insertResult["inserted_lines"].get<std::int64_t>(), std::int64_t{ 2 }, "a two line insert must insert two lines");
@@ -147,7 +147,7 @@ int main()
             { "start_line", 2                   },
             { "end_line"  , 3                   },
             { "content"   , "x\ny"              },
-        }, context);
+        }, context, "");
         ExpectEqual(deleteResult["success"].get<bool>(), true, "deleting lines two to three must succeed");
         ExpectEqual(deleteResult["removed_lines"].get<std::int64_t>(), std::int64_t{ 2 }, "deleting two lines must remove two lines");
         ExpectEqual(deleteResult["inserted_lines"].get<std::int64_t>(), std::int64_t{ 0 }, "a delete must insert no lines");
@@ -160,7 +160,7 @@ int main()
             { "operation" , "replace"            },
             { "start_line", 4                    },
             { "content"   , "FOUR"               },
-        }, context);
+        }, context, "");
         ExpectEqual(replaceResult["success"].get<bool>(), true, "replacing line four must succeed");
         ExpectEqual(replaceResult["removed_lines"].get<std::int64_t>(), std::int64_t{ 1 }, "a single line replace must remove one line");
         ExpectEqual(replaceResult["inserted_lines"].get<std::int64_t>(), std::int64_t{ 1 }, "a single line replace must insert one line");
@@ -174,7 +174,7 @@ int main()
             { "start_line", 2                  },
             { "end_line"  , 4                  },
             { "content"   , "a\nb"             },
-        }, context);
+        }, context, "");
         ExpectEqual(multiResult["success"].get<bool>(), true, "replacing lines two to four must succeed");
         ExpectEqual(multiResult["removed_lines"].get<std::int64_t>(), std::int64_t{ 3 }, "replacing three lines must remove three lines");
         ExpectEqual(multiResult["inserted_lines"].get<std::int64_t>(), std::int64_t{ 2 }, "replacing with two lines must insert two lines");
@@ -192,7 +192,7 @@ int main()
             { "operation" , "replace"     },
             { "start_line", 3             },
             { "content"   , "THREE"       },
-        }, context);
+        }, context, "");
 
         ExpectEqual(result["success"].get<bool>(), true, "a replace without end_line must succeed");
         ExpectEqual(result["removed_lines"].get<std::int64_t>(), std::int64_t{ 1 }, "a replace without end_line must remove exactly one line");
@@ -213,7 +213,7 @@ int main()
         json const manyLinesResult = WriteFileTool(json{
             { "path"   , path.string() },
             { "content", content       },
-        }, context);
+        }, context, "");
 
         ExpectEqual(manyLinesResult["success"].get<bool>(), true, "writing two hundred lines must succeed");
         ExpectEqual(manyLinesResult["created"].get<bool>(), true, "writing a new path must report the file as created");
@@ -230,7 +230,7 @@ int main()
         json const oneLineResult = WriteFileTool(json{
             { "path"   , path.string() },
             { "content", "only\n"      },
-        }, context);
+        }, context, "");
 
         ExpectEqual(oneLineResult["success"].get<bool>(), true, "rewriting the path must succeed");
         ExpectEqual(oneLineResult["created"].get<bool>(), false, "rewriting an existing path must not report the file as created");
@@ -243,7 +243,7 @@ int main()
             { "operation" , "replace"         },
             { "start_line", 2                 },
             { "content"   , "TWO"             },
-        }, context);
+        }, context, "");
         ExpectEqual(editResult["success"].get<bool>(), true, "the one line edit used for the size comparison must succeed");
 
         Expect(manyLinesResult.dump().size() <= editResult.dump().size(), "the write_file result must not grow with the content it wrote");
@@ -262,7 +262,7 @@ int main()
             { "operation" , "replace"         },
             { "start_line", 1                 },
             { "content"   , "A"               },
-        }, context);
+        }, context, "");
 
         ExpectEqual(headResult["success"].get<bool>(), true, "replacing the first line must succeed");
         ExpectEqual(headResult["context_before"].size(), std::size_t{ 0 }, "the first line must have no context before it");
@@ -278,7 +278,7 @@ int main()
             { "operation" , "replace"         },
             { "start_line", 5                 },
             { "content"   , "FIVE"            },
-        }, context);
+        }, context, "");
 
         ExpectEqual(tailResult["success"].get<bool>(), true, "replacing the last line must succeed");
         ExpectEqual(tailResult["context_after"].size(), std::size_t{ 0 }, "the last line must have no context after it");
@@ -299,7 +299,7 @@ int main()
             { "operation" , "replace"           },
             { "start_line", 4                   },
             { "content"   , "FOUR"              },
-        }, context);
+        }, context, "");
 
         ExpectEqual(middleResult["success"].get<bool>(), true, "replacing a middle line must succeed");
         ExpectEqual(middleResult["context_before"].size(), std::size_t{ 3 }, "a middle edit must be preceded by three context lines");
@@ -316,7 +316,7 @@ int main()
             { "operation" , "replace"             },
             { "start_line", 1                     },
             { "content"   , "A"                   },
-        }, context);
+        }, context, "");
 
         ExpectEqual(trailingResult["success"].get<bool>(), true, "replacing the first line must succeed");
         ExpectEqual(trailingResult["newline_added"].get<bool>(), true, "an edit of a file that ended with a newline must keep the newline");
@@ -330,7 +330,7 @@ int main()
             { "operation" , "replace"         },
             { "start_line", 1                 },
             { "content"   , "A"               },
-        }, context);
+        }, context, "");
 
         ExpectEqual(bareResult["success"].get<bool>(), true, "replacing the first line of a file without a trailing newline must succeed");
         ExpectEqual(bareResult["newline_added"].get<bool>(), false, "an edit of a file that did not end with a newline must not add one");
@@ -347,7 +347,7 @@ int main()
             { "operation" , "replace"     },
             { "start_line", 0             },
             { "content"   , "ONE"         },
-        }, context);
+        }, context, "");
 
         ExpectEqual(result["success"].get<bool>(), false, "start_line zero must fail");
         ExpectEqual(result.size(), std::size_t{ 3 }, "the validation failure must carry exactly three keys");

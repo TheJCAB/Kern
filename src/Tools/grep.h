@@ -51,7 +51,7 @@ std::string GrepTruncateLine(std::string_view line)
     return truncated;
 }
 
-json GrepTool(json const& arguments, ToolsRuntimeContext const& context)
+json GrepTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     std::string  const pattern            = GetOrDefault(arguments, "pattern"            , std::string{});
     std::string  const globPattern        = GetOrDefault(arguments, "glob_pattern"       , std::string{});

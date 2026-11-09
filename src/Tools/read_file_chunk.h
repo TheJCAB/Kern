@@ -11,7 +11,7 @@
 
 constexpr std::int64_t ReadFileChunkMaxLines = 100;
 
-inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     std::filesystem::path const path      = arguments.value("path", "");
     int64_t               const startLine = arguments.value("start_line", int64_t{1});

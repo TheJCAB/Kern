@@ -230,7 +230,7 @@ std::vector<ToolCallDelta> ParseToolCallsDelta(json::array_t const& toolCalls)
     return result;
 }
 
-std::string CallTool(std::string_view const name, json const& arguments, ToolsRuntimeContext const& context, std::span<ToolDefinition const> const tools)
+std::string CallTool(std::string_view const name, json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId, std::span<ToolDefinition const> const tools)
 {
     auto const it = std::ranges::find_if(tools, [&](auto& toolDef){ return toolDef.name == name; });
     if (it == tools.end())
@@ -242,7 +242,7 @@ std::string CallTool(std::string_view const name, json const& arguments, ToolsRu
 
     try
     {
-        return toolDef.callTool(arguments, context).dump();
+        return toolDef.callTool(arguments, context, parentSessionId).dump();
     }
     catch (std::exception const e)
     {
@@ -250,7 +250,7 @@ std::string CallTool(std::string_view const name, json const& arguments, ToolsRu
     }
 }
 
-std::optional<std::string> ParseToolCall(std::string_view const text, ToolsRuntimeContext const& context, std::span<ToolDefinition const> const tools)
+std::optional<std::string> ParseToolCall(std::string_view const text, ToolsRuntimeContext const& context, std::string_view const parentSessionId, std::span<ToolDefinition const> const tools)
 {
     json const jsonToolCall = json::parse(text.begin(), text.end(), nullptr, false);
     if (!jsonToolCall.is_object())
@@ -260,7 +260,7 @@ std::optional<std::string> ParseToolCall(std::string_view const text, ToolsRunti
     
     if (auto toolCall = ParseToolCall(jsonToolCall))
     {
-        return CallTool(toolCall->name, std::move(toolCall->arguments), context, tools);
+        return CallTool(toolCall->name, std::move(toolCall->arguments), context, parentSessionId, tools);
     }
 
     return {};

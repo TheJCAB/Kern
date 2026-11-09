@@ -36,7 +36,7 @@ json BuildLineRange(std::vector<std::string> const& lines, int64_t const firstLi
 }
 }
 
-inline json EditFileLinesTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json EditFileLinesTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     std::filesystem::path const path      = arguments.value("path"      , "");
     std::string           const operation = arguments.value("operation" , "");

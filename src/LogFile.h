@@ -13,14 +13,11 @@ public:
     // Directory that receives the artifacts: the `logs` directory beside the executable, created on demand.
     static std::filesystem::path const& Directory();
 
-    // A fresh random identifier for one run: eight lowercase alphanumeric characters.
-    static std::string GenerateId();
-
     // Uses Directory() for the artifacts and a freshly generated id.
     LogFile();
 
     // `directory` must exist; `id` defaults to a freshly generated one.
-    explicit LogFile(std::filesystem::path directory, std::string id = GenerateId());
+    explicit LogFile(std::filesystem::path directory, std::string id);
 
     std::string const& Id() const { return m_id; }
 

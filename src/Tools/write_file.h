@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <string_view>
 
-inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json WriteFileTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     auto const path    = arguments.value("path"   , "");
     auto const content = arguments.value("content", "");

@@ -25,7 +25,7 @@ constexpr ToolDefinition Tools[] =
     read_file_chunk,
 };
 
-inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context)
+inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId)
 {
     std::string const prompt = arguments.value("prompt", "");
 
@@ -50,7 +50,7 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
             tools.push_back(build);
         }
 
-        Session session = context.createNewSession(context, RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), tools);
+        Session session = context.createNewSession(context, parentSessionId, "research", RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), tools);
 
         Session::PromptResult const result = session.Prompt(prompt, SubagentMaxTurns);
 

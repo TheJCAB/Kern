@@ -17,7 +17,7 @@
 
 constexpr std::size_t GlobMaxResults = 50;
 
-inline json GlobTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json GlobTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     std::string const pattern = GetOrDefault(arguments, "pattern" , std::string{});
     std::string const rootDir = GetOrDefault(arguments, "root_dir", std::string{ "." });

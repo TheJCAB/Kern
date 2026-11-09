@@ -51,7 +51,12 @@ struct ToolsRuntimeContext;
 
 // The context is passed in explicitly so that a factory never has to capture the
 // context that owns it, which would leave a dangling reference inside every session.
-using CreateNewSessionFunction = Session(ToolsRuntimeContext const& context, std::string_view systemPrompt, std::span<ToolDefinition const> tools);
+using CreateNewSessionFunction = Session(
+    ToolsRuntimeContext const&      ,
+    std::string_view                parentSessionId,
+    std::string_view                role,
+    std::string_view                systemPrompt,
+    std::span<ToolDefinition const> );
 
 struct ToolsRuntimeContext
 {
@@ -63,7 +68,7 @@ struct ToolsRuntimeContext
     std::optional<BuildCommands>            buildCommands;
 
     // Bare directory names that the search tools ignore below their root_dir, never at it.
-    std::vector<std::string>                ignoredDirectories {};
+    std::vector<std::string>                ignoredDirectories{};
 };
 
 // At runtime, running a tool is done by calling a function with this signature.
@@ -73,7 +78,7 @@ struct ToolsRuntimeContext
 //   This can either be data for the model
 //   or an error message if the parameters are found to be incorrect.
 // It may throw an exception if the tool fails even though the call was correctly formed.
-using ToolCallable = json(json const& arguments, ToolsRuntimeContext const&);
+using ToolCallable = json(json const& arguments, ToolsRuntimeContext const&, std::string_view const parentSessionId);
 
 // A tool argument was present but unusable; tools report this as errorCode "invalid_argument".
 struct ToolArgumentError : std::runtime_error
@@ -116,6 +121,6 @@ std::vector<ToolCall> ParseToolCalls(json::array_t const& toolCalls);
 
 std::vector<ToolCallDelta> ParseToolCallsDelta(json::array_t const& toolCalls);
 
-std::string CallTool(std::string_view const name, json const& arguments, ToolsRuntimeContext const&, std::span<ToolDefinition const>);
+std::string CallTool(std::string_view const name, json const& arguments, ToolsRuntimeContext const&, std::string_view const parentSessionId, std::span<ToolDefinition const>);
 
-std::optional<std::string> ParseToolCall(std::string_view text, ToolsRuntimeContext const&, std::span<ToolDefinition const>);
+std::optional<std::string> ParseToolCall(std::string_view text, ToolsRuntimeContext const&, std::string_view const parentSessionId, std::span<ToolDefinition const>);

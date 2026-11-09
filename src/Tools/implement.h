@@ -32,7 +32,7 @@ constexpr ToolDefinition Tools[] =
     write_file,
 };
 
-inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context)
+inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId)
 {
     std::string const prompt = arguments.value("prompt", "");
 
@@ -57,7 +57,7 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
             tools.push_back(build);
         }
 
-        Session session = context.createNewSession(context, RawReadTextFile(GetExecutableDirectory() / "data" / "ImplementSystemPrompt.txt"), tools);
+        Session session = context.createNewSession(context, parentSessionId, "implement", RawReadTextFile(GetExecutableDirectory() / "data" / "ImplementSystemPrompt.txt"), tools);
 
         Session::PromptResult const result = session.Prompt(prompt, SubagentMaxTurns);
 

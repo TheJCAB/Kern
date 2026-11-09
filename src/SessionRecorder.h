@@ -14,12 +14,15 @@ inline constexpr std::string_view KernBuildId = __DATE__ " " __TIME__;
 // Version of the transcript layout written by SessionRecorder; bumped when the manifest keys change.
 inline constexpr int SessionTranscriptSchemaVersion = 1;
 
+// A fresh random identifier for one session.
+std::string GenerateId();
+
 // Who the session is: a stable id, the session it was spawned from, its role and an optional tag.
 struct SessionIdentity
 {
-    std::string id{};         // Unique per session; also the prefix of both artifacts.
+    std::string id = GenerateId(); // Unique per session; also the prefix of both artifacts.
     std::string parentId{};   // Empty for a root session.
-    std::string role{ "main" };
+    std::string role;
     std::string tag{};        // Omitted from the manifest when empty.
 };
 

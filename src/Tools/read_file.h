@@ -3,7 +3,7 @@
 #include <FileUtilities.h>
 #include <ToolUtilities.h>
 
-inline json ReadFileTool(json const& arguments, ToolsRuntimeContext const& context)
+inline json ReadFileTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
     auto const path = arguments.value("path", "");
 

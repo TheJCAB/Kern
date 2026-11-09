@@ -43,8 +43,14 @@ add_executable(kern
     src/ToolUtilities.cpp       src/ToolUtilities.h
     src/XmlToolCallParser.cpp   src/XmlToolCallParser.h
 
+    src/ChatTransport.cpp  src/ChatTransport.h
+    src/Conversation.cpp    src/Conversation.h
+    src/LogFile.cpp         src/LogFile.h
+    src/ModelResponse.cpp   src/ModelResponse.h
     src/Session.cpp         src/Session.h
     src/SessionRecorder.cpp src/SessionRecorder.h
+    src/TokenLimitRecovery.cpp src/TokenLimitRecovery.h
+    src/TurnRecord.cpp      src/TurnRecord.h
     src/Tools/build.h
     src/Tools/edit_file_lines.h
     src/Tools/glob.h

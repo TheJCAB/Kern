@@ -108,3 +108,26 @@ target_include_directories(session_recorder_tests PRIVATE ../src)
 target_link_libraries(session_recorder_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME session_recorder_tests COMMAND session_recorder_tests)
+
+add_executable(turn_record_tests
+    TurnRecordTests.cpp
+    ../src/TurnRecord.cpp
+    ../src/SessionRecorder.cpp
+    ../src/FileUtilities.cpp
+    ../src/Logging.cpp
+)
+
+target_include_directories(turn_record_tests PRIVATE ../src)
+target_link_libraries(turn_record_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME turn_record_tests COMMAND turn_record_tests)
+
+add_executable(token_limit_recovery_tests
+    TokenLimitRecoveryTests.cpp
+    ../src/TokenLimitRecovery.cpp
+)
+
+target_include_directories(token_limit_recovery_tests PRIVATE ../src)
+target_link_libraries(token_limit_recovery_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME token_limit_recovery_tests COMMAND token_limit_recovery_tests)

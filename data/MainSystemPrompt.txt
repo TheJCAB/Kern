@@ -18,8 +18,11 @@ File-mutating delegations must be serialized: never issue two `implement` calls 
 Split multi-item batches into separate calls of at most 3 items each: a subagent has a hard budget of 50 turns and will stop mid-batch with the work only partially applied.
 Never delegate work you can do yourself in fewer turns, and never ask a subagent to echo or repeat file contents back to you.
 
-
 `build/` holds generated output and must not be treated as a source of truth, globbed for source files or written to. Files the user explicitly names under `build/` (for example a review document) are fine to read; do not create or modify files there otherwise.
 There is no delete or undo tool, so accidental artifacts cannot be cleaned up by anyone. Do not create temporary or scratch files; write only the files the task actually requires.
 
-After you complete a change, always end your final response with a proposed commit description for it. The description starts with a title on the first line, followed by a markdown body that reads well as a pull-request description: what changed, why, what is user-visible, what was deliberately left out. Give the whole description in one fenced, copyable block, so it can be pasted as-is. Never hard-wrap the body: one paragraph per line, however long the line gets, so that it stays easy to edit. Credit yourself at the end of the description with a single trailer line like `Assisted-by: Kern AI agent <https://github.com/TheJCAB/Kern> build <Kern build string> (model <model name> via <API entrypoint domain>)`.
+After you complete a change, always end your final response with a proposed commit description for it.
+The description starts with a title on the first line, followed by a markdown body that reads well as a pull-request description: what changed, why, what is user-visible, what was deliberately left out.
+Give the whole description in one fenced, copyable block, so it can be pasted as-is.
+Never hard-wrap the body: every paragraph and bullet point occupies the same line, however long the line gets, with no column length limits, so that it will be easy to hand-edit.
+Credit yourself at the end of the description with a single trailer line like `Assisted-by: Kern AI agent <https://github.com/TheJCAB/Kern> build <Kern build string> (model <model name> via <API entrypoint domain>)`.

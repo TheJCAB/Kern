@@ -1,9 +1,7 @@
 #pragma once
 
-#include "FileUtilities.h"
-#include "NetworkUtilities.h"
+#include "Endpoint.h"
 #include "SessionRecorder.h"
-#include "StringUtilities.h"
 #include "ToolUtilities.h"
 
 #include <nlohmann/json.hpp>
@@ -13,7 +11,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 class Session
 {

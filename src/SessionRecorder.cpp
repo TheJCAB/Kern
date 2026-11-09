@@ -122,16 +122,17 @@ bool SessionRecorder::WriteManifest(bool const complete, json const& outcome)
         identity["turnsFile"]   = m_turnsPath.filename().string();
 
         json provenance  = json::object();
-        provenance["buildId"]  = m_provenance.buildId;
-        provenance["model"]    = m_provenance.modelName;
-        provenance["decoding"] = m_provenance.decoding;
-        provenance["endpoint"] = m_provenance.endpoint;
+        provenance["buildId"]   = m_provenance.buildId;
+        provenance["model"]     = m_provenance.modelName;
+        provenance["decoding"]  = m_provenance.decoding;
+        provenance["endpoint"]  = m_provenance.endpoint;
         provenance["maxTokens"] = m_provenance.maxTokens;
         provenance["maxTurns"]  = m_provenance.maxTurns;
 
         json inputs = json::object();
         inputs["systemPrompt"]    = m_inputs.systemPrompt;
         inputs["toolDefinitions"] = m_inputs.toolDefinitions;
+        inputs["userPrompt"]      = m_inputs.userPrompt;
 
         json manifest = json::object();
         manifest["schemaVersion"] = SessionTranscriptSchemaVersion;

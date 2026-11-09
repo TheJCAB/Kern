@@ -31,7 +31,7 @@ struct SessionProvenance
     json        decoding{ json::object() };
     json        endpoint{ json::object() };
     unsigned    maxTokens = 0;
-    unsigned    maxTurns   = 0;
+    unsigned    maxTurns  = 0;
 };
 
 // What was fed into the session before the first turn.

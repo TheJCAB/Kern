@@ -37,7 +37,7 @@ add_executable(kern
     src/FileValidation.cpp      src/FileValidation.h
     src/Logging.cpp             src/Logging.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
-    src/Process.cpp             src/Process.h
+    src/RunProcess.cpp          src/RunProcess.h
     src/Services.cpp            src/Services.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h

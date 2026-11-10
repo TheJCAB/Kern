@@ -1,4 +1,4 @@
-#include "Process.h"
+#include "RunProcess.h"
 
 #include <algorithm>
 #include <array>
@@ -185,7 +185,7 @@ ProcessResult RunProcess(std::filesystem::path const& executable,
         throw std::runtime_error("Failed to configure the build command pipe");
     }
 
-    STARTUPINFO startupInfo{};
+    STARTUPINFOW startupInfo{};
     startupInfo.cb         = static_cast<DWORD>(sizeof(startupInfo));
     startupInfo.dwFlags    = STARTF_USESTDHANDLES;
     startupInfo.hStdInput  = ::GetStdHandle(STD_INPUT_HANDLE);

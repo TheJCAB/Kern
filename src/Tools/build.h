@@ -1,7 +1,7 @@
 #pragma once
 
 #include <BuildCommand.h>
-#include <Process.h>
+#include <RunProcess.h>
 #include <ToolUtilities.h>
 
 #include <algorithm>

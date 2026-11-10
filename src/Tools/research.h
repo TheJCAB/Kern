@@ -1,6 +1,7 @@
 #pragma once
 
 #include <FileUtilities.h>
+#include "RuntimePaths.h"
 #include <ToolUtilities.h>
 #include <Session.h>
 
@@ -50,7 +51,7 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
             tools.push_back(build);
         }
 
-        Session session = context.createNewSession(context, parentSessionId, "research", RawReadTextFile(GetExecutableDirectory() / "data" / "ResearchSystemPrompt.txt"), tools);
+        Session session = context.createNewSession(context, parentSessionId, "research", RawReadTextFile(GetRuntimeDataDirectory() / "ResearchSystemPrompt.txt"), tools);
 
         Session::PromptResult const result = session.Prompt(prompt, SubagentMaxTurns);
 

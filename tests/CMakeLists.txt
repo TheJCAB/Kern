@@ -131,3 +131,17 @@ target_include_directories(token_limit_recovery_tests PRIVATE ../src)
 target_link_libraries(token_limit_recovery_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME token_limit_recovery_tests COMMAND token_limit_recovery_tests)
+
+add_executable(runtime_paths_tests
+    RuntimePathsTests.cpp
+    ../src/Credentials.cpp
+    ../src/Endpoint.cpp
+    ../src/FileUtilities.cpp
+    ../src/RuntimePaths.cpp
+    ../src/Services.cpp
+)
+
+target_include_directories(runtime_paths_tests PRIVATE ../src)
+target_link_libraries(runtime_paths_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME runtime_paths_tests COMMAND runtime_paths_tests)

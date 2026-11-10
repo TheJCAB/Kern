@@ -56,6 +56,26 @@ Add `--session-tag TEXT` to label the run in its transcript, so that the run can
 ./build/Release/kern --session-tag tool-schema-v3 "add a test"
 ```
 
+## Install
+
+Build once, then install into any prefix. The project embeds no machine-specific path, so the prefix is chosen at install time and the installed tree can be moved or copied afterwards.
+
+```bash
+cmake --install build/Release --prefix ~/install
+```
+
+That puts the program in `~/install/bin/kern`, the runtime data (the system prompts) in `~/install/share/kern/data` and this file in `~/install/share/doc/kern`. Add `~/install/bin` to `PATH` to run `kern` from any directory. The same command works on Windows with `build\Release` and any prefix directory.
+
+The program tells an installed tree from a build tree by looking for the installed data directory beside its `bin` directory, so a build tree and an installed copy keep working side by side.
+
+Three things change once the program is installed:
+
+- Log files and session transcripts go to the per-user state directory instead of the install prefix, which is usually not writable by the user running the program: `%LOCALAPPDATA%\Kern\logs` on Windows, and `$XDG_STATE_HOME/Kern/logs` or `~/.local/state/Kern/logs` elsewhere. `--session-dir PATH` and `--show-sessions` still read and write wherever they are pointed.
+- The services file does not move: it stays at `%APPDATA%\Kern\services.json` on Windows and at `~/.config/Kern/services.json` elsewhere.
+- Run from the directory whose project Kern should work on, as before: the workspace is the current directory, not the install prefix.
+
+- The install step copies only the program and its data, not the libraries it was linked against. The OpenSSL runtime that the build already requires must therefore be present on the machine that runs it, exactly as it must be for the build tree.
+
 ## Letting Kern build your project
 
 Kern has no shell and can never run an arbitrary command. The only way it can execute anything is an optional `build` tool, and that tool only exists if the owners of the workspace declare it in a `Kern.build.json` file at the root of the workspace:
@@ -191,12 +211,12 @@ Use `--log-level LEVEL` to get diagnostics on stderr (so they don't mix with the
 ```
 
 - `error` / `warning`: failures, such as a connection or TLS error, or a response that ended without a finish reason.
-- `debug`: each request (URL, size, model, message count), the HTTP status, timing, size of the response and the finish reason. It also saves the complete raw response of every turn as `logs/<id>_<turn>_response_raw.txt`, next to the `..._request.json` that is always written. The `logs` directory is next to the `kern` executable.
+- `debug`: each request (URL, size, model, message count), the HTTP status, timing, size of the response and the finish reason. It also saves the complete raw response of every turn as `logs/<id>_<turn>_response_raw.txt`, next to the `..._request.json` that is always written. The `logs` directory is next to the `kern` executable of a build tree, and in the per-user state directory of an installed program (see [Install](#install)).
 - `trace`: additionally prints every server-sent event as it arrives.
 
 ### Session transcripts
 
-Every run records itself, by default. Two files are written beside the executable's `logs/` directory (or under `--session-dir PATH`), both named with the run's log id: `<id>_session.json` is the manifest, written when the run starts and rewritten when it ends, and `<id>_turns.jsonl` gets one appended JSON line per turn. `--record off` disables this entirely.
+Every run records itself, by default. Two files are written in the default log directory (or under `--session-dir PATH`), both named with the run's log id: `<id>_session.json` is the manifest, written when the run starts and rewritten when it ends, and `<id>_turns.jsonl` gets one appended JSON line per turn. `--record off` disables this entirely.
 
 The manifest holds `schemaVersion`, `complete`, `identity` (id, role, parent id, tag), `provenance` (build id, model, decoding parameters, endpoint host/port/path/secure, max tokens, max turns), `inputs` (system prompt, tool definitions) and `outcome`. Each turn line holds the turn number, the token usage, the wall time of the response, the finish reason, the assistant text, the tool calls made and their results, truncated to a first 2000-character excerpt (`resultTruncated` marks that).
 

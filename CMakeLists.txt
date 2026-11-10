@@ -8,6 +8,8 @@ project(kern LANGUAGES CXX)
 
 enable_testing()
 
+include(GNUInstallDirs)
+
 if(MSVC)
     add_compile_options(/W4 /WX)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
@@ -26,7 +28,7 @@ include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 CPMAddPackage(URI "gh:nlohmann/json@3.12.0" OPTIONS "JSON_BuildTests OFF")
 
 # HTTPS is mandatory: API keys must never travel over unencrypted connections to remote services.
-CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0 OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON")
+CPMAddPackage(NAME httplib GITHUB_REPOSITORY yhirose/cpp-httplib VERSION 0.51.0 OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON" "HTTPLIB_INSTALL OFF")
 
 add_executable(kern
     src/BuildCommand.cpp        src/BuildCommand.h
@@ -38,6 +40,7 @@ add_executable(kern
     src/Logging.cpp             src/Logging.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/RunProcess.cpp          src/RunProcess.h
+    src/RuntimePaths.cpp        src/RuntimePaths.h
     src/Services.cpp            src/Services.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
@@ -70,6 +73,21 @@ target_include_directories(kern PRIVATE src)
 
 target_link_libraries(kern PRIVATE nlohmann_json::nlohmann_json httplib::httplib)
 
+# Where the installed program keeps its runtime data (system prompts), under the install prefix.
+set(KERN_INSTALL_DATA_SUBDIRECTORY ${CMAKE_INSTALL_DATADIR}/kern/data)
+
+# The same directory expressed relative to the directory that holds the installed executable, so that no
+# install prefix is ever compiled into the program and an installed tree can be moved or copied freely.
+if(IS_ABSOLUTE "${CMAKE_INSTALL_BINDIR}" OR IS_ABSOLUTE "${CMAKE_INSTALL_DATADIR}")
+    set(KERN_INSTALL_DATA_DIR_RELATIVE "")
+else()
+    file(RELATIVE_PATH KERN_INSTALL_DATA_DIR_RELATIVE
+         "/kern-install-prefix/${CMAKE_INSTALL_BINDIR}"
+         "/kern-install-prefix/${KERN_INSTALL_DATA_SUBDIRECTORY}")
+endif()
+
+target_compile_definitions(kern PRIVATE KERN_INSTALL_DATA_DIR_RELATIVE="${KERN_INSTALL_DATA_DIR_RELATIVE}")
+
 set(RUNTIME_DATA_DESTINATION $<TARGET_FILE_DIR:kern>/data)
 
 add_custom_target(copy_runtime_data ALL
@@ -80,5 +98,13 @@ add_custom_target(copy_runtime_data ALL
 )
 
 add_dependencies(kern copy_runtime_data)
+
+# `cmake --install . --prefix DIR` puts the program in DIR/bin and its data in DIR/share/kern/data, which is
+# exactly the layout the program resolves at startup; DIR is chosen at install time and never recorded here.
+install(TARGETS kern RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/ DESTINATION ${KERN_INSTALL_DATA_SUBDIRECTORY})
+
+install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 add_subdirectory(tests)

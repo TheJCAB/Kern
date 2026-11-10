@@ -4,6 +4,7 @@
 #include "FileUtilities.h"
 #include "JsonUtilities.h"
 #include "Logging.h"
+#include "RuntimePaths.h"
 #include "Services.h"
 #include "Session.h"
 #include "SessionRecorder.h"
@@ -62,7 +63,7 @@ struct SessionSettings
     unsigned    maxTokens = 0;
     // Whether each session writes a transcript; --record off disables it.
     bool record = true;
-    // Where transcripts go; empty means the logs/ directory beside the executable.
+    // Where transcripts go; empty means GetDefaultLogDirectory(), the per-user state directory when installed.
     std::filesystem::path sessionDirectory{};
     // Free-form label handed to every session identity.
     std::string sessionTag{};
@@ -127,7 +128,7 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
     settings.sessionDirectory = options.sessionDirectory;
     settings.sessionTag       = options.sessionTag;
 
-    settings.commonSystemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "CommonSystemPrompt.txt");
+    settings.commonSystemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "CommonSystemPrompt.txt");
     settings.workspaceInstructions = LoadWorkspaceInstructions();
 
     // A workspace that declares no build simply has no build tool at all, while one that
@@ -206,7 +207,7 @@ int ListServices()
 // reported as unreadable rather than skipped silently.
 int ShowSessions(CommandLineOptions const& options)
 {
-    std::filesystem::path const directory = options.sessionDirectory.empty() ? GetExecutableDirectory() / "logs" : options.sessionDirectory;
+    std::filesystem::path const directory = options.sessionDirectory.empty() ? GetDefaultLogDirectory() : options.sessionDirectory;
 
     if (!std::filesystem::exists(directory) || !std::filesystem::is_directory(directory))
     {
@@ -299,7 +300,7 @@ int Run(CommandLineOptions const& options)
     SessionSettings const settings = ResolveSessionSettings(options);
 
     // The runtime context is appended last so it is the final thing the orchestrator reads.
-    std::string const systemPrompt = RawReadTextFile(GetExecutableDirectory() / "data" / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions + DescribeRuntimeContext(settings);
+    std::string const systemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions + DescribeRuntimeContext(settings);
 
     Session session{Session::Config{
         .endpointDescriptor = settings.endpoint,

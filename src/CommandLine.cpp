@@ -217,7 +217,7 @@ void PrintUsage(std::FILE* stream)
     std::print(stream, "  --port N          override the port of the resolved endpoint\n");
     std::print(stream, "  --max-turns N     give up after N agent turns (default {})\n", DefaultMaxTurns);
     std::print(stream, "  --record MODE     session recording: on (default), off or auto (currently the same as on)\n");
-    std::print(stream, "  --session-dir PATH  write transcripts to PATH instead of the logs/ directory beside the executable\n");
+    std::print(stream, "  --session-dir PATH  write transcripts to PATH instead of the default log directory\n");
     std::print(stream, "  --session-tag TEXT  label recorded runs with TEXT, e.g. tool-schema-v3\n");
     std::print(stream, "  --                treat all remaining arguments as part of PROMPT\n");
 }

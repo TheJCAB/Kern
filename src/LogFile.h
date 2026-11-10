@@ -10,7 +10,7 @@
 class LogFile
 {
 public:
-    // Directory that receives the artifacts: the `logs` directory beside the executable, created on demand.
+    // Directory that receives the artifacts: the per-user state directory of an installed program and the `logs` directory beside the executable of a build tree (see GetDefaultLogDirectory()), created on demand.
     static std::filesystem::path const& Directory();
 
     // Uses Directory() for the artifacts and a freshly generated id.

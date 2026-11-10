@@ -1,20 +1,25 @@
 #include "LogFile.h"
 
 #include "FileUtilities.h"
+#include "RuntimePaths.h"
 
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <utility>
 
 std::filesystem::path const& LogFile::Directory()
 {
-    static auto const path = GetExecutableDirectory() / "logs";
-    if (!std::filesystem::exists(path))
+    static auto const path = []
     {
-        std::filesystem::create_directory(path);
+        auto const directory = GetDefaultLogDirectory();
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        return directory;
     }
+    ();
     return path;
 }
 

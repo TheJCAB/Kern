@@ -1,5 +1,6 @@
 #include "XmlToolCallParser.h"
 
+#include <cctype>
 #include <print>
 
 inline std::string Trim(std::string_view input)

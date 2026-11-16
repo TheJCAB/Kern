@@ -105,6 +105,15 @@ struct ToolCall
     std::string id;
     std::string name;
     json        arguments;
+
+    [[nodiscard]] friend bool operator==(ToolCall const& a, ToolCall const& b)
+    {
+        if (!a.id.empty() && !b.id.empty())
+        {
+            return a.id == b.id;
+        }
+        return a.name == b.name && a.arguments == b.arguments;
+    }
 };
 
 struct ToolCallDelta

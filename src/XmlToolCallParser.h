@@ -2,7 +2,6 @@
 
 #include "ToolUtilities.h"
 
-#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>

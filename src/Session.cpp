@@ -167,14 +167,32 @@ struct Session::Pimpl
 
                 if (modelResponse.reason == ResponseFinishReason::stop)
                 {
+                    auto const nativeToolCalls = modelResponse.toolCalls.size();
+                    if (!modelResponse.content.empty())
+                    {
+                        for (auto&& toolCall : ParseToolCallsXml(modelResponse.content))
+                        {
+                            if (std::ranges::find(modelResponse.toolCalls, toolCall) == modelResponse.toolCalls.end())
+                            {
+                                modelResponse.toolCalls.push_back(std::move(toolCall));
+                            }
+                        }
+                    }
                     if (modelResponse.content.empty() && modelResponse.toolCalls.empty())
                     {
-                        modelResponse.toolCalls = ParseToolCallsXml(modelResponse.reasoning);
+                        for (auto&& toolCall : ParseToolCallsXml(modelResponse.reasoning))
+                        {
+                            if (std::ranges::find(modelResponse.toolCalls, toolCall) == modelResponse.toolCalls.end())
+                            {
+                                modelResponse.toolCalls.push_back(std::move(toolCall));
+                            }
+                        }
                     }
-                    if (!modelResponse.toolCalls.empty())
+
+                    if (modelResponse.toolCalls.size() > nativeToolCalls)
                     {
                         modelResponse.reason = ResponseFinishReason::tool_calls;
-                        std::println("Found {} XML tools", modelResponse.toolCalls.size());
+                        std::println("Found {} XML tools", modelResponse.toolCalls.size() > nativeToolCalls);
                     }
                     else
                     {

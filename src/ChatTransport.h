@@ -5,6 +5,7 @@
 #include "LogFile.h"
 #include "ModelResponse.h"
 
+#include <functional>
 #include <string>
 
 // One request/response exchange with the service: sends a request payload, sleeps and retries the transient HTTP
@@ -20,6 +21,11 @@ public:
         json          usage        = json::object(); // as the service reported it; empty when it reported none
         double        milliseconds = 0.0;            // round-trip time of the request that produced the response
     };
+
+    // The transport seam: one request/response exchange as a replaceable callable, declared exactly over the
+    // signature of `Send` so that a caller can hand a session a stand-in transport with no adapter and no
+    // wrapper. An empty function means "use the session's own ChatTransport"; see `Session::Config::sendChat`.
+    using SendFunction = std::function<Exchange (json const& payload)>;
 
     ChatTransport(Endpoint endpoint, LogFile& log);
 

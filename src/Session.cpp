@@ -83,6 +83,17 @@ struct Session::Pimpl
                                 MakeRecorderDirectory(config),
                                 config.record                        }
     {
+        // The seam is bound here rather than in the init list so that the default binding is formed only once
+        // every member it can reach has been constructed.
+        if (config.sendChat)
+        {
+            m_sendChat = std::move(config.sendChat);
+        }
+        else
+        {
+            m_sendChat = [this](json const& payload) -> ChatTransport::Exchange { return m_transport.Send(payload); };
+        }
+
         std::string systemPrompt = std::move(config.systemPrompt);
         if (m_maxTokens != 0)
         {
@@ -123,7 +134,9 @@ struct Session::Pimpl
                 Log(LogLevel::debug, "turn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     turn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_log.Sequence());
 
-                ChatTransport::Exchange const exchange = m_transport.Send(payload);
+                turnRecord.SetRequestPayload(payload);
+
+                ChatTransport::Exchange const exchange = m_sendChat(payload);
                 turnRecord.SetResponseMilliseconds(exchange.milliseconds);
                 ModelResponse modelResponse = exchange.response;
 
@@ -319,6 +332,9 @@ struct Session::Pimpl
     SessionIdentity                  m_id;
     LogFile                          m_log;
     ChatTransport                    m_transport;
+    // The exchange used by the agent loop. Defaults to `m_transport.Send` when the configuration supplies no
+    // seam, so production behaviour is unchanged; a harness supplies its own to replay a transcript.
+    ChatTransport::SendFunction      m_sendChat;
     // Writes <id>_session.json beside the per-turn log files; best effort, never throws.
     SessionRecorder                  m_recorder;
 };

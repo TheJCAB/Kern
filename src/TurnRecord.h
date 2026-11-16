@@ -20,6 +20,10 @@ public:
     // Writes the accumulated turn, if the recorder is enabled.
     ~TurnRecord() noexcept;
 
+    // Records the complete request payload sent for this turn, under "request". A replay must reproduce this
+    // byte for byte, which is what makes a recorded transcript something a harness can hold a session to.
+    void SetRequestPayload(json const& payload);
+
     // Records the "usage" object as sent by the service; anything that is not an object is ignored.
     void SetUsage(json const& usage);
 

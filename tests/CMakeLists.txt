@@ -145,3 +145,30 @@ target_include_directories(runtime_paths_tests PRIVATE ../src)
 target_link_libraries(runtime_paths_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME runtime_paths_tests COMMAND runtime_paths_tests)
+
+add_executable(session_replay_tests
+    SessionReplayTests.cpp
+    ../src/Session.cpp
+    ../src/ChatTransport.cpp
+    ../src/Conversation.cpp
+    ../src/Credentials.cpp
+    ../src/Endpoint.cpp
+    ../src/FileUtilities.cpp
+    ../src/FileValidation.cpp
+    ../src/LogFile.cpp
+    ../src/Logging.cpp
+    ../src/ModelResponse.cpp
+    ../src/NetworkUtilities.cpp
+    ../src/RuntimePaths.cpp
+    ../src/SessionRecorder.cpp
+    ../src/StringUtilities.cpp
+    ../src/TokenLimitRecovery.cpp
+    ../src/ToolUtilities.cpp
+    ../src/TurnRecord.cpp
+    ../src/XmlToolCallParser.cpp
+)
+
+target_include_directories(session_replay_tests PRIVATE ../src)
+target_link_libraries(session_replay_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json httplib::httplib)
+
+add_test(NAME session_replay_tests COMMAND session_replay_tests)

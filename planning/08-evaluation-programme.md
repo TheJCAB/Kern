@@ -1,6 +1,6 @@
 # Evaluation programme
 
-Status: in progress. The transport seam, the workspace delta, `kern_eval`, the corpus and the gate are what remain, in the order of work below. This document coordinates [06 Session recording](06-session-recording.md) and [07 Evaluation harness](07-evaluation-harness.md), and owns the policy neither of them can decide.
+Status: in progress. Step 1 of the order of work below is complete: the transport seam exists (`Session::Config::sendChat`, `src/Session.h:48`) and is proven to replay byte-identically (`session_replay_tests`, `tests/CMakeLists.txt:149-174`). The workspace delta, subagent nesting, `kern_eval`, the corpus and the gate are what remain, in the order of work below. This document coordinates [06 Session recording](06-session-recording.md) and [07 Evaluation harness](07-evaluation-harness.md), and owns the policy neither of them can decide.
 
 Related designs: [06 Session recording](06-session-recording.md) (the redacted manifests, jsonl turns, recorded provenance and `sendRequest` seam that turn a run into a replayable record), [07 Evaluation harness](07-evaluation-harness.md) (the `kern_eval` runner, declarative checks, paired comparison and gate modes that score a record repeatedly), and [09 Turn budget and session resumption](09-turn-budget-and-resumption.md) (the budget and continuation policy a long run depends on). Each of the three links back to this programme.
 
@@ -73,7 +73,7 @@ The mitigations are deliberate and mostly about saying no. The gate suite stays 
 
 ## Suggested order of work
 
-1. Add the `sendRequest` seam and prove that a session recorded through it replays byte-identically, before any transcript is admitted. The call site in `Session::Pimpl::Prompt` (`src/Session.cpp:912`) still reaches the transport directly, at `src/Session.cpp:560` and `src/Session.cpp:639`, so no session the current code records can be replayed.
+1. Done. The seam is `Session::Config::sendChat` of type `ChatTransport::SendFunction` (`src/Session.h:48`, `src/ChatTransport.h:28`), the single hard-wired call `m_transport.Send(payload)` has become `m_sendChat(payload)` (`src/Session.cpp:130`), and each turn now records the request payload behind it under `"request"`. The replay property is asserted by `tests/SessionReplayTests.cpp`, which records a session through a scripted seam, then drives a second session whose transport is the first session's transcript, and requires both the request payloads and the resulting transcript files to come out identical.
 2. Record the workspace delta and rewrite absolute paths relative to the session root, so that a transcript carries the effects a check asserts against instead of only the text of a tool's result.
 3. Nest a subagent session under its parent's session id, so that a `research` or `implement` run appears as a child role rather than as an unrelated top-level transcript.
 4. Build `kern_eval` with `replay` and `mock` modes only, and unit-test it hermetically, so the harness is trustworthy before it costs money.

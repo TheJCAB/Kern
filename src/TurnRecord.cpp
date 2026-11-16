@@ -18,6 +18,11 @@ TurnRecord::~TurnRecord() noexcept
     m_recorder.RecordTurn(m_turn);
 }
 
+void TurnRecord::SetRequestPayload(json const& payload)
+{
+    m_turn["request"] = payload;
+}
+
 void TurnRecord::SetUsage(json const& usage)
 {
     if (!usage.is_object())

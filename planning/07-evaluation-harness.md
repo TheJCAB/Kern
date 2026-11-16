@@ -1,8 +1,8 @@
 # Evaluation harness design
 
-Status: proposal, nothing implemented. The CTest suite in `tests/` verifies units — string helpers, file utilities, path validation, session recording — and this plan adds a separate system that scores behaviour against recorded transcripts. It depends on [06 Session recording](06-session-recording.md): the recorder writes the manifests and turn logs this harness reads, but until its `sendRequest` seam lands those records cannot be replayed, so there is nothing to score yet.
+Status: proposal, nothing implemented. The CTest suite in `tests/` verifies units — string helpers, file utilities, path validation, session recording — and this plan adds a separate system that scores behaviour against recorded transcripts. It depends on [06 Session recording](06-session-recording.md): the recorder writes the manifests and turn logs this harness reads, but its transport seam has now landed as `Session::Config::sendChat` (`src/Session.h:48`), so a recorded transcript is replayable and there is something to score once a runner exists to score it.
 
-Related designs: [06 Session recording](06-session-recording.md) (the manifests, turn logs, proposed transport seam and `admit` command this harness consumes), [08 Evaluation programme](08-evaluation-programme.md) (which decides what the corpus must be able to discriminate), and [09 Turn budget and session resumption](09-turn-budget-and-resumption.md) (whose progression and resumption behaviour is one of the things a case may need to pin); each of the three links back to this plan.
+Related designs: [06 Session recording](06-session-recording.md) (the manifests, turn logs and transport seam — now implemented as `Session::Config::sendChat` — together with the `admit` command this harness consumes), [08 Evaluation programme](08-evaluation-programme.md) (which decides what the corpus must be able to discriminate), and [09 Turn budget and session resumption](09-turn-budget-and-resumption.md) (whose progression and resumption behaviour is one of the things a case may need to pin); each of the three links back to this plan.
 
 ## Why this is not CTest
 
@@ -120,7 +120,7 @@ Three execution modes decide what the seam answers.
 | --- | --- | --- |
 | `live` | The real endpoint and model named by the case. | Producing new evidence. |
 | `replay` | Responses read from the case's `transcript.json`. | Unit-testing the harness itself. |
-| `mock` | A scripted fake endpoint supplied through the transport member that [06 Session recording](06-session-recording.md) proposes adding to `struct Config` (`src/Session.h:30`); that member does not exist yet. | CTest runs of the harness internals. |
+| `mock` | A scripted fake endpoint supplied through `Session::Config::sendChat` (`src/Session.h:48`), the transport member [06 Session recording](06-session-recording.md) added for exactly this; `tests/SessionReplayTests.cpp` already drives a whole `Session` that way. | CTest runs of the harness internals. |
 
 `live` mode refuses to start unless the resolved service names a model and the environment holds its key, so a misconfigured experiment fails before it spends anything. `replay` and `mock` never resolve a service at all, which is what lets the harness's own tests run on a machine with no credentials and no network.
 
@@ -137,7 +137,7 @@ The commands form a small surface, and each one is also reachable from the unit 
 
 `run` isolates each case. Every case gets a fresh temporary workspace cloned from its `fixture/`, the fixed `Kern.build.json` the fixture carries, a per-case turn and token budget enforced during the run, and a teardown that records the file delta before the workspace is removed. Nothing a case does is visible to the next case, and nothing it writes survives the run except the transcript and the recorded delta.
 
-The harness invokes the agent through the same `Session` code path the product uses rather than reimplementing the loop, because a harness with its own loop measures a different program. This is the reason for the injection seam in [06 Session recording](06-session-recording.md): the only substitution is transport, and the loop, tool dispatch, history handling and budget checks are the shipped ones.
+The harness invokes the agent through the same `Session` code path the product uses rather than reimplementing the loop, because a harness with its own loop measures a different program. This is the reason for the injection seam that [06 Session recording](06-session-recording.md) specifies and that now exists as `Session::Config::sendChat`: the only substitution is transport, and the loop, tool dispatch, history handling and budget checks are the shipped ones.
 
 Cases may run in parallel with a bounded worker count, since a session-level suite is otherwise dominated by waiting on the model. Every case must therefore be idempotent and must never write outside its own workspace, and no case may read a path another case is writing.
 

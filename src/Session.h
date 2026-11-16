@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ChatTransport.h"
 #include "Endpoint.h"
 #include "SessionRecorder.h"
 #include "ToolUtilities.h"
@@ -40,6 +41,11 @@ public:
         std::filesystem::path sessionDirectory{};
         // Whether to write a session transcript for this session.
         bool record = true;
+        // The transport seam: replaces the request/response exchange for this session alone, so a recorded
+        // transcript can be replayed without touching a socket. Empty means "send through this session's own
+        // ChatTransport", which is what every production session does. It is a value member rather than a global
+        // so that two sessions in one process can be driven by different transports.
+        ChatTransport::SendFunction     sendChat{};
     };
     Session(Config);
     ~Session();

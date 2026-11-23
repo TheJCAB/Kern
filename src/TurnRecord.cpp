@@ -27,9 +27,9 @@ void TurnRecord::SetUsage(json const& usage)
     m_turn["usage"] = usage;
 }
 
-void TurnRecord::SetResponseMilliseconds(double milliseconds)
+void TurnRecord::SetResponseDuration(std::chrono::duration<double, std::milli> milliseconds)
 {
-    m_turn["responseMs"] = milliseconds;
+    m_turn["responseMs"] = milliseconds.count();
 }
 
 void TurnRecord::SetFinishReason(std::string_view reason)

@@ -84,7 +84,7 @@ ChatTransport::Exchange ChatTransport::Send(json const& payload)
     {
         auto const requestStart = std::chrono::steady_clock::now();
         HttpResult const httpResult = PostWithRetry(m_endpoint, payload, [](auto){});
-        exchange.milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - requestStart).count();
+        exchange.duration = std::chrono::steady_clock::now() - requestStart;
         if (IsLogEnabled(LogLevel::debug))
         {
             m_log.Write("response_raw", httpResult.body, "txt");
@@ -165,7 +165,7 @@ ChatTransport::Exchange ChatTransport::Send(json const& payload)
 
     auto const requestStart = std::chrono::steady_clock::now();
     HttpResult const httpResult = PostWithRetry(m_endpoint, payload, sseCallback);
-    exchange.milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - requestStart).count();
+    exchange.duration = std::chrono::steady_clock::now() - requestStart;
     if (IsLogEnabled(LogLevel::debug))
     {
         m_log.Write("response_raw", httpResult.body, "txt");

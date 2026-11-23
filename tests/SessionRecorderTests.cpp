@@ -22,7 +22,7 @@ SessionProvenance MakeProvenance()
     provenance.modelName   = "test-model";
     provenance.maxTokens   = 4096;
     provenance.decoding    = json{ { "temperature", 0.2 } };
-    provenance.endpoint    = json{ { "host", "example.invalid" } };
+    provenance.endpoint    = Endpoint{ .host = "example.invalid" };
     return provenance;
 }
 

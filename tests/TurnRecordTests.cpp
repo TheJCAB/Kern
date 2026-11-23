@@ -3,8 +3,8 @@
 #include "FileUtilities.h"
 #include "TestUtilities.h"
 
+#include <chrono>
 #include <filesystem>
-#include <format>
 #include <print>
 #include <string>
 #include <vector>
@@ -23,7 +23,7 @@ SessionProvenance MakeProvenance()
     provenance.modelName   = "test-model";
     provenance.maxTokens   = 4096;
     provenance.decoding    = json{ { "temperature", 0.2 } };
-    provenance.endpoint    = json{ { "host", "example.invalid" } };
+    provenance.endpoint    = Endpoint{ .host = "example.invalid" };
     return provenance;
 }
 
@@ -178,7 +178,7 @@ int main()
         std::size_t const linesBefore = CountNonEmptyLines(turns);
         {
             TurnRecord turnRecord{ recorder, 9u };
-            turnRecord.SetResponseMilliseconds(123.5);
+            turnRecord.SetResponseDuration(std::chrono::duration<double, std::milli>{ 123.5 });
             turnRecord.AddToolCall(json{ { "name", "read_file" }, { "arguments", json::object() } });
             turnRecord.AddToolCall(json{ { "name", "grep" }, { "arguments", json::object() } });
             ExpectEqual(CountNonEmptyLines(turns), linesBefore, "the setters write nothing on their own");
@@ -247,7 +247,7 @@ int main()
         {
             TurnRecord turnRecord{ recorder, 1u };
             turnRecord.SetUsage(json{ { "prompt_tokens", 1 } });
-            turnRecord.SetResponseMilliseconds(5.0);
+            turnRecord.SetResponseDuration(std::chrono::milliseconds{ 5 });
             turnRecord.SetFinishReason("stop");
             turnRecord.SetAssistantText("hello");
             turnRecord.AddToolCall(json{ { "name", "read_file" } });

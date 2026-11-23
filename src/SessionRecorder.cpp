@@ -7,28 +7,9 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-std::string GenerateId()
-{
-    static constexpr char kAlphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-    std::random_device rd;
-    std::mt19937_64 rng(rd());
-    std::uniform_int_distribution<int> dist(0, static_cast<int>(sizeof(kAlphabet) - 2));
-
-    std::string id;
-    id.reserve(8);
-    for (int i = 0; i < 8; ++i)
-    {
-        id.push_back(kAlphabet[dist(rng)]);
-    }
-
-    return id;
-}
 
 SessionRecorder::SessionRecorder(SessionIdentity identity,
                                  SessionProvenance provenance,
@@ -144,7 +125,12 @@ bool SessionRecorder::WriteManifest(bool const complete, json const& outcome)
         provenance["buildId"]   = m_provenance.buildId;
         provenance["model"]     = m_provenance.modelName;
         provenance["decoding"]  = m_provenance.decoding;
-        provenance["endpoint"]  = m_provenance.endpoint;
+        provenance["endpoint"]  = json{
+            { "host"  , m_provenance.endpoint.host   },
+            { "port"  , m_provenance.endpoint.port   },
+            { "path"  , m_provenance.endpoint.path   },
+            { "secure", m_provenance.endpoint.secure },
+        };
         provenance["maxTokens"] = m_provenance.maxTokens;
         provenance["maxTurns"]  = m_provenance.maxTurns;
 

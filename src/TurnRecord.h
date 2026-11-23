@@ -24,7 +24,7 @@ public:
     void SetUsage(json const& usage);
 
     // Round-trip time of the request in milliseconds.
-    void SetResponseMilliseconds(double milliseconds);
+    void SetResponseDuration(std::chrono::duration<double, std::milli>);
 
     // Why the response stopped; an empty reason is ignored.
     void SetFinishReason(std::string_view reason);

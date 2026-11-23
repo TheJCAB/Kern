@@ -5,7 +5,7 @@
 #include "LogFile.h"
 #include "ModelResponse.h"
 
-#include <string>
+#include <chrono>
 
 // One request/response exchange with the service: sends a request payload, sleeps and retries the transient HTTP
 // failures, saves the request and response artifacts, and normalises the answer into a ModelResponse. The endpoint
@@ -16,9 +16,9 @@ class ChatTransport
 public:
     struct Exchange
     {
-        ModelResponse response;
-        json          usage        = json::object(); // as the service reported it; empty when it reported none
-        double        milliseconds = 0.0;            // round-trip time of the request that produced the response
+        ModelResponse                       response;
+        json                                usage        = json::object(); // as the service reported it; empty when it reported none
+        std::chrono::steady_clock::duration duration { 0 };                // round-trip time of the request that produced the response
     };
 
     ChatTransport(Endpoint endpoint, LogFile& log);

@@ -34,7 +34,7 @@ public:
         unsigned                        maxTokens = 0; // 0 = don't send a limit
         // Which session this is: an empty `id` means "derive it from the log id", an empty `role`
         // means "main", and `tag` is a free-form label such as `tool-schema-v3`.
-        SessionIdentity identity{};
+        SessionIdentity                 identity{};
         // Where the transcript manifest and turn file are written; empty means the `logs/`
         // directory beside the executable.
         std::filesystem::path sessionDirectory{};

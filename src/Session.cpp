@@ -44,12 +44,7 @@ struct Session::Pimpl
         SessionProvenance provenance;
         provenance.modelName = config.modelName;
         provenance.maxTokens = config.maxTokens;
-        provenance.endpoint  = json{
-            { "host"  , config.endpointDescriptor.host   },
-            { "port"  , config.endpointDescriptor.port   },
-            { "path"  , config.endpointDescriptor.path   },
-            { "secure", config.endpointDescriptor.secure },
-        };
+        provenance.endpoint  = config.endpointDescriptor;
         return provenance;
     }
 
@@ -124,7 +119,7 @@ struct Session::Pimpl
                     turn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_log.Sequence());
 
                 ChatTransport::Exchange const exchange = m_transport.Send(payload);
-                turnRecord.SetResponseMilliseconds(exchange.milliseconds);
+                turnRecord.SetResponseDuration(exchange.duration);
                 ModelResponse modelResponse = exchange.response;
 
                 if (!modelResponse.reasoning.empty() && m_transport.IsOllama())

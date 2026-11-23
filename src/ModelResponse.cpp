@@ -69,43 +69,11 @@ ModelResponseDelta ExtractModelContentDelta(json const& event)
     return result;
 }
 
-ModelResponse ExtractModelContent(json const& response, bool ollamaStyle)
+ModelResponse ExtractModelContent(json const& response)
 {
     ModelResponse result;
 
     if (!response.is_object()) throw std::runtime_error("malformed response: not a JSON object");
-
-    if (ollamaStyle)
-    {
-        auto const& message = response.value("message", json::object());
-        if (!message.is_object()) throw std::runtime_error("malformed response: missing message");
-
-        result.content = message.value<std::string>("content", {});
-
-        if (response.value("done", false))
-        {
-            auto const doneReason = response.value("done_reason", std::string{"stop"});
-            if      (doneReason == "stop"      ) result.reason = ResponseFinishReason::stop;
-            else if (doneReason == "length"   ) result.reason = ResponseFinishReason::length;
-            else if (doneReason == "tool_calls") result.reason = ResponseFinishReason::tool_calls;
-            else result.reason = ResponseFinishReason::stop;
-        }
-        else
-        {
-            result.reason = ResponseFinishReason::length;
-        }
-
-        if (auto const toolCalls = message.value<json::array_t>("tool_calls", {}); !toolCalls.empty())
-        {
-            result.toolCalls = ParseToolCalls(toolCalls);
-            if (result.reason == ResponseFinishReason::stop)
-            {
-                result.reason = ResponseFinishReason::tool_calls;
-            }
-        }
-
-        return result;
-    }
 
     json const& choices = response.at("choices");
     if (!choices.is_array() || choices.empty()) throw std::runtime_error("malformed response: missing choices");

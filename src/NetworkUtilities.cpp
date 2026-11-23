@@ -13,6 +13,60 @@
 #include <stdexcept>
 #include <utility>
 
+HttpResult HttpGet(Endpoint const& endpoint)
+{
+    if (!endpoint.apiKey.empty() && !endpoint.secure && !IsLoopbackHost(endpoint.host))
+    {
+        throw std::runtime_error("Refusing to send an API key over an unencrypted connection");
+    }
+
+    std::string const hostForUrl = endpoint.host.find(':') != std::string::npos ? "[" + endpoint.host + "]" : endpoint.host;
+    httplib::Client cli(std::string(endpoint.secure ? "https://" : "http://") + hostForUrl + ":" + std::to_string(endpoint.port));
+    cli.set_error_logger([](httplib::Error const error, httplib::Request const*)
+    {
+        Log(LogLevel::debug, "httplib error: {}", httplib::to_string(error));
+    });
+
+    httplib::Headers headers;
+    if (!endpoint.apiKey.empty())
+    {
+        headers.emplace("Authorization", "Bearer " + endpoint.apiKey);
+    }
+    headers.emplace("Accept-Encoding", "identity");
+
+    Log(LogLevel::debug, "GET {}://{}:{}{} (API key: {})",
+        endpoint.secure ? "https" : "http", endpoint.host, endpoint.port, endpoint.path,
+        endpoint.apiKey.empty() ? "none" : "sent as bearer token");
+
+    auto const start = std::chrono::steady_clock::now();
+    auto const result = cli.Get(endpoint.path, headers);
+    HttpResult httpResult;
+    if (result)
+    {
+        httpResult.status = result->status;
+        httpResult.body = result->body;
+    }
+    else
+    {
+        httpResult.error = httplib::to_string(result.error());
+    }
+    if (!endpoint.apiKey.empty())
+    {
+        ReplaceIn(httpResult.body, endpoint.apiKey, "[redacted]");
+    }
+
+    auto const elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    if (httpResult.error.empty())
+    {
+        Log(LogLevel::debug, "HTTP {} after {} ms: {} bytes", httpResult.status, elapsedMs, httpResult.body.size());
+    }
+    else
+    {
+        Log(LogLevel::debug, "HTTP GET failed after {} ms: {}", elapsedMs, httpResult.error);
+    }
+    return httpResult;
+}
+
 HttpResult HttpPost(Endpoint const& endpoint, std::string_view const payloadType, std::string_view const payload, std::function<void(std::string_view)> const& sseCallback)
 {
     // Defense in depth: callers must have vetted the endpoint, but never send a key in cleartext to a remote host regardless.

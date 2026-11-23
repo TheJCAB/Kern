@@ -14,11 +14,12 @@
 struct ServiceDefinition
 {
     std::string name;
-    std::string endpoint;           // http:// or https:// URL of the chat completions API
-    std::string apiKeyEnv;          // name of the environment variable that holds the API key; empty if none
-    std::string model;              // default model name; empty if unspecified
+    std::string endpoint;              // http:// or https:// URL of the chat completions API
+    std::string apiKeyEnv;             // name of the environment variable that holds the API key; empty if none
+    std::string model;                 // default model name; empty if unspecified
     bool        allowInsecure = false; // permits plain http to a non-loopback host
     unsigned    maxTokens = 0;         // per-response output limit sent as max_tokens; 0 = don't send one
+    bool        stream = true;         // true to request a streamed response
 };
 
 class CredentialSource;
@@ -42,3 +43,6 @@ ServiceDefinition const& FindService(std::span<ServiceDefinition const> services
 // Throws std::runtime_error if the URL is invalid, a required key can't be found,
 // or the endpoint is plain http to a non-loopback host that isn't marked allowInsecure.
 Endpoint ResolveService(ServiceDefinition const& service, std::span<std::unique_ptr<CredentialSource> const> credentialSources);
+
+// Parses an OpenAI-compatible /v1/models response. Invalid or unsupported bodies return no models.
+std::vector<std::string> ParseAvailableModels(std::string_view jsonText);

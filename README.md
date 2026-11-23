@@ -48,6 +48,8 @@ Then run the harness:
 ./build/Release/kern --service llama.cpp --max-turns 10 "Analyze and review the src/main.cpp file. Be tough but fair"
 ```
 
+When `--model` is omitted, Kern queries the service's OpenAI-compatible `/v1/models` endpoint. If one model is available, it uses that model. If several are available, Kern lists them and exits. If the models API is not supported, Kern leaves the model unspecified so compatible local servers can select or accept their configured default.
+
 The harness will send the request to the model, interpret tool calls, invoke the model with the tool results and then continue the loop until the number of turns is exhausted or the model declares the task complete.
 
 Add `--session-tag TEXT` to label the run in its transcript, so that the run can be selected later:
@@ -140,7 +142,12 @@ Every model server Kern talks to is a *service*: a name, an endpoint and, option
 ./build/Release/kern --service openai --model gpt-4.1 "Review src/main.cpp"
 ```
 
-Two services are built in and need no configuration or key: `llama.cpp` (`http://127.0.0.1:8080/v1/chat/completions`, the default) and `ollama` (`http://127.0.0.1:11434/api/chat`). Use `--list-services` to see all services and whether their keys are set (key values are never shown). Use `--show-sessions` instead to see the recorded sessions: it prints a table of their id, tag, model and completion flag, then a count, and a manifest it cannot parse is listed as `unreadable` rather than skipped.
+Some services are built in and need no configuration or key:
+- `llama.cpp`: `http://127.0.0.1:8080/v1/chat/completions`, the default.
+- `ollama`: `http://127.0.0.1:11434/v1/chat/completions`.
+- `strata`: `http://127.0.0.1:47831/v1/chat/completions`.
+
+Use `--list-services` to see all services and whether their keys are set (key values are never shown). Use `--show-sessions` instead to see the recorded sessions: it prints a table of their id, tag, model and completion flag, then a count, and a manifest it cannot parse is listed as `unreadable` rather than skipped.
 
 Other options: `--model NAME` overrides the service's default model, `--port N` overrides the endpoint's port, and `--endpoint URL` uses an ad-hoc endpoint that needs no key. `--record <on|off|auto>` controls session recording (`on` is the default, `auto` currently behaves as `on`, and `off` disables it entirely), `--session-dir PATH` writes the transcripts somewhere other than the `logs/` directory beside the executable, and `--session-tag TEXT` labels a run, for example `tool-schema-v3`.
 
@@ -175,6 +182,7 @@ Add your own in `~/.config/Kern/services.json` (Linux; `$XDG_CONFIG_HOME/Kern/se
 | `model` | no | Default model for this service (the default is `gemma4`). |
 | `allowInsecure` | no | Permits plain `http://` to a host that isn't this machine. |
 | `maxTokens` | no | Caps the output of each response (sent as `max_tokens`). Some services reserve credits for the model's maximum output on every request, so a lower cap can avoid "insufficient balance" or rate-limit errors. Unset by default. |
+| `stream` | no | Whether to request streamed SSE responses. Defaults to `true`; set to `false` for a service that returns one complete response body. |
 
 ### Providing the API key
 

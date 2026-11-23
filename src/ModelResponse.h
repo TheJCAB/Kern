@@ -41,6 +41,5 @@ struct ModelResponseDelta
 // malformed event, and debug-logs a legitimate event that carries only token usage.
 ModelResponseDelta ExtractModelContentDelta(json const& event);
 
-// Parses a complete response body. `ollamaStyle` selects the `/api/chat` layout instead of the
-// OpenAI-compatible `choices` layout. Throws std::runtime_error on a malformed response.
-ModelResponse ExtractModelContent(json const& response, bool ollamaStyle);
+// Parses a complete response body. Throws std::runtime_error on a malformed response.
+ModelResponse ExtractModelContent(json const& response);

@@ -17,4 +17,5 @@ struct HttpResult
 };
 
 // Throws only if the request is refused before being sent; otherwise failures are reported in the result.
+HttpResult HttpGet(Endpoint const& endpoint);
 HttpResult HttpPost(Endpoint const& endpoint, std::string_view payloadType, std::string_view payload, std::function<void(std::string_view)> const&);

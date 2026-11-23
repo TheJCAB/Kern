@@ -99,6 +99,27 @@ int main()
         ExpectEqual(ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":4096}}})")[0].maxTokens, 4096u, "maxTokens parsed");
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":0}}})"); }), "maxTokens must be positive");
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":"big"}}})"); }), "maxTokens must be a number");
+        {
+            auto const explicitTransport = ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","stream":false}}})")[0];
+            Expect(!explicitTransport.stream, "stream parsed");
+        }
+        Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","stream":"yes"}}})"); }), "stream must be boolean");
+    }
+
+    std::println("Test ParseAvailableModels");
+    {
+        auto const models = ParseAvailableModels(R"({"object":"list","data":[{"id":"qwen"},{"id":"llama"},{"id":"qwen"},{"id":42}]})");
+        ExpectEqual(models.size(), 2u, "models are unique");
+        ExpectEqual(models[0], "llama", "models are sorted");
+        ExpectEqual(models[1], "qwen", "valid model id parsed");
+        Expect(ParseAvailableModels("not json").empty(), "invalid models response");
+        Expect(ParseAvailableModels(R"({"models":[]})").empty(), "missing data is unsupported");
+    }
+
+    std::println("Test GetModelsPath");
+    {
+        ExpectEqual(GetModelsPath("/v1/chat/completions"), "/v1/models", "v1 chat path");
+        Expect(GetModelsPath("/api/chat").empty(), "native chat path is not a v1 models endpoint");
     }
 
     std::println("Test FindService");

@@ -4,6 +4,7 @@
 #include "FileUtilities.h"
 #include "JsonUtilities.h"
 #include "Logging.h"
+#include "NetworkUtilities.h"
 #include "RuntimePaths.h"
 #include "Services.h"
 #include "Session.h"
@@ -20,7 +21,6 @@
 #include <exception>
 #include <filesystem>
 #include <format>
-#include <format>
 #include <optional>
 #include <print>
 #include <span>
@@ -35,8 +35,6 @@ namespace
 
 // These defaults are intentional: Kern is meant to be used against a local server.
 constexpr char DefaultServiceName[]  = "llama.cpp";
-constexpr char FallbackModelName[]   = "gemma4";
-
 constexpr std::string_view WorkspaceInstructionFiles[] =
 {
     "Kern.txt",
@@ -111,10 +109,6 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
         settings.maxTokens = service.maxTokens;
     }
 
-    if (settings.model.empty())
-    {
-        settings.model = FallbackModelName;
-    }
     if (options.model)
     {
         settings.model = *options.model;
@@ -254,11 +248,10 @@ int ShowSessions(CommandLineOptions const& options)
                 session.model         = provenance.value("model", std::string{ "-" });
                 session.status        = manifest.value("complete", false) ? "complete" : "incomplete";
             }
-            catch (std::exception const&)
+            catch (std::exception const& e)
             {
-                // Keep the unreadable defaults so the file is visible instead of silently skipped.
+                Log(LogLevel::warning, "Failed to parse session manifest {}: {}", entry.path().filename().string(), e.what());
             }
-
             sessions.push_back(std::move(session));
         }
     }
@@ -291,13 +284,63 @@ int ShowSessions(CommandLineOptions const& options)
 std::string DescribeRuntimeContext(SessionSettings const& settings)
 {
     std::string const endpoint = std::format("{}://{}:{}{}", settings.endpoint.secure ? "https" : "http", settings.endpoint.host, settings.endpoint.port, settings.endpoint.path);
+    std::string const model = settings.model.empty() ? "<unspecified>" : settings.model;
 
-    return std::format("\n\nRuntime context: you are Kern (https://github.com/TheJCAB/Kern) agent harness build `{}`. Running model `{}` via `{}`.", KernBuildId, settings.model, endpoint);
+    return std::format("\n\nRuntime context: you are Kern (https://github.com/TheJCAB/Kern) agent harness build `{}`. Running model `{}` via `{}`.", KernBuildId, model, endpoint);
+}
+
+std::vector<std::string> DiscoverModels(Endpoint const& endpoint)
+{
+    std::string const modelsPath = GetModelsPath(endpoint.path);
+    if (modelsPath.empty())
+    {
+        return {};
+    }
+
+    Endpoint modelsEndpoint = endpoint;
+    modelsEndpoint.path = modelsPath;
+    try
+    {
+        HttpResult const result = HttpGet(modelsEndpoint);
+        if (!result.IsSuccess())
+        {
+            return {};
+        }
+        return ParseAvailableModels(result.body);
+    }
+    catch (std::exception const& e)
+    {
+        Log(LogLevel::debug, "models API unavailable: {}", e.what());
+        return {};
+    }
 }
 
 int Run(CommandLineOptions const& options)
 {
-    SessionSettings const settings = ResolveSessionSettings(options);
+    SessionSettings settings = ResolveSessionSettings(options);
+
+    if (settings.model.empty())
+    {
+        std::vector<std::string> const models = DiscoverModels(settings.endpoint);
+        if (models.size() == 1)
+        {
+            settings.model = models.front();
+        }
+        else if (models.size() > 1)
+        {
+            std::println("Multiple models available:");
+            for (std::string const& model : models)
+            {
+                std::println("  {}", model);
+            }
+            return 0;
+        }
+    }
+
+    if (!settings.model.empty())
+    {
+        std::println("Using model: {}", settings.model);
+    }
 
     // The runtime context is appended last so it is the final thing the orchestrator reads.
     std::string const systemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions + DescribeRuntimeContext(settings);

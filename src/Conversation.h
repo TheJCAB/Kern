@@ -18,9 +18,6 @@ struct ConversationMessage
     json::array_t toolCalls {};
 };
 
-// The assistant message that requests `toolCalls`, which is how the OpenAI-compatible layout asks for work.
-ConversationMessage MakeAssistantToolCallMessage(std::string content, std::vector<ToolCall> const& toolCalls);
-
 // The message that carries one tool result back to the model, tied to the call by its id.
 ConversationMessage MakeToolResultMessage(std::string toolCallId, std::string_view result);
 

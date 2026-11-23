@@ -23,8 +23,8 @@ public:
 
     ChatTransport(Endpoint endpoint, LogFile& log);
 
-    // True for the Ollama /api/chat and /api/generate layouts, which do not use the OpenAI-compatible fields.
-    bool IsOllama() const;
+    // Whether this endpoint expects streamed SSE responses.
+    bool StreamsResponse() const;
 
     // Sends `payload` and returns the normalised answer, saving the request artifact and, at debug level, the raw
     // response body. Throws std::runtime_error when the transport fails or the answer is malformed.

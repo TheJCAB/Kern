@@ -92,7 +92,7 @@ struct Session::Pimpl
 
         // The decoding parameters actually sent; BuildPayload hard-codes streaming and only sends max_tokens when
         // non-zero.
-        m_recorder.SetDecoding(json{ { "stream", !m_transport.IsOllama() }, { "maxTokens", m_maxTokens } });
+        m_recorder.SetDecoding(json{ { "stream", m_transport.StreamsResponse() }, { "maxTokens", m_maxTokens } });
     }
 
     PromptResult RunPrompt(std::string_view prompt, unsigned maxTurns)
@@ -114,7 +114,7 @@ struct Session::Pimpl
             std::println("===============================\nTurn {} [{}]", turn, m_log.Id());
             try
             {
-                json const payload = BuildChatPayload(m_conversationHistory, recovery.Messages(), { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens, .stream = !m_transport.IsOllama() });
+                json const payload = BuildChatPayload(m_conversationHistory, recovery.Messages(), { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens, .stream = m_transport.StreamsResponse() });
                 Log(LogLevel::debug, "turn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     turn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_log.Sequence());
 
@@ -122,7 +122,7 @@ struct Session::Pimpl
                 turnRecord.SetResponseDuration(exchange.duration);
                 ModelResponse modelResponse = exchange.response;
 
-                if (!modelResponse.reasoning.empty() && m_transport.IsOllama())
+                if (!modelResponse.reasoning.empty() && !m_transport.StreamsResponse())
                 {
                     std::println("\nreasoning> {}\n", modelResponse.reasoning);
                 }
@@ -154,7 +154,7 @@ struct Session::Pimpl
                         });
                         continue;
                     }
-                    else if (m_transport.IsOllama()) // Otherwise, we already did during streaming
+                    else if (!m_transport.StreamsResponse()) // Otherwise, we already printed during streaming
                     {
                         std::println("\nassistant> {}\n", modelResponse.content);
                     }
@@ -227,10 +227,6 @@ struct Session::Pimpl
                                 .turnsUsed = turn + 1,
                             };
                         }
-                    }
-                    if (!m_transport.IsOllama())
-                    {
-                        m_conversationHistory.push_back(MakeAssistantToolCallMessage(std::move(modelResponse.content), modelResponse.toolCalls));
                     }
 
                     for (auto const& toolCall : modelResponse.toolCalls)

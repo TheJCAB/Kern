@@ -106,3 +106,15 @@ bool IsLoopbackHost(std::string_view const host)
     }
     return true;
 }
+
+std::string GetModelsPath(std::string_view const chatPath)
+{
+    constexpr std::string_view suffix = "/chat/completions";
+    if (!chatPath.ends_with(suffix))
+    {
+        return {};
+    }
+    std::string modelsPath{ chatPath.substr(0, chatPath.size() - suffix.size()) };
+    modelsPath += "/models";
+    return modelsPath;
+}

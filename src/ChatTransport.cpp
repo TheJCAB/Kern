@@ -68,9 +68,9 @@ ChatTransport::ChatTransport(Endpoint endpoint, LogFile& log)
 {
 }
 
-bool ChatTransport::IsOllama() const
+bool ChatTransport::StreamsResponse() const
 {
-    return m_endpoint.path.find("/api/chat") != std::string::npos || m_endpoint.path.find("/api/generate") != std::string::npos;
+    return m_endpoint.stream;
 }
 
 ChatTransport::Exchange ChatTransport::Send(json const& payload)
@@ -80,7 +80,7 @@ ChatTransport::Exchange ChatTransport::Send(json const& payload)
 
     m_log.Write("request", payload.dump(2));
 
-    if (IsOllama())
+    if (!StreamsResponse())
     {
         auto const requestStart = std::chrono::steady_clock::now();
         HttpResult const httpResult = PostWithRetry(m_endpoint, payload, [](auto){});
@@ -100,7 +100,7 @@ ChatTransport::Exchange ChatTransport::Send(json const& payload)
         }
         m_log.Write("response", response.dump(2));
 
-        exchange.response = ExtractModelContent(response, IsOllama());
+        exchange.response = ExtractModelContent(response);
         Log(LogLevel::debug, "finish_reason: {}, content: {} chars, tool calls: {}",
             to_string(exchange.response.reason), exchange.response.content.size(), exchange.response.toolCalls.size());
         return exchange;

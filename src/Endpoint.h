@@ -10,6 +10,7 @@ struct Endpoint
     std::uint32_t port   = 0;
     std::string   path;
     bool          secure = false; // true for https
+    bool          stream = true;
 
     // Secret. Sent as a Bearer token if not empty. Never print or log this.
     std::string   apiKey;
@@ -21,3 +22,7 @@ Endpoint ParseEndpoint(std::string_view endpoint);
 
 // True for localhost, 127.x.x.x and ::1.
 bool IsLoopbackHost(std::string_view host);
+
+// Derives the OpenAI-compatible /v1/models path for a chat completions endpoint.
+// Returns an empty string when the chat path has no recognizable completions suffix.
+std::string GetModelsPath(std::string_view chatPath);

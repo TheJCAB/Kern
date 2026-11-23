@@ -2,29 +2,6 @@
 
 #include <utility>
 
-ConversationMessage MakeAssistantToolCallMessage(std::string content, std::vector<ToolCall> const& toolCalls)
-{
-    ConversationMessage assistantMessage{
-        .role      = "assistant",
-        .content   = std::move(content),
-        .toolCalls = json::array(),
-    };
-
-    for (auto const& call : toolCalls)
-    {
-        assistantMessage.toolCalls.push_back(json{
-            { "type", "function" },
-            { "function", {
-                { "name"     , call.name             },
-                { "arguments", call.arguments.dump() },
-            }},
-            { "id", call.id },
-        });
-    }
-
-    return assistantMessage;
-}
-
 ConversationMessage MakeToolResultMessage(std::string toolCallId, std::string_view result)
 {
     return ConversationMessage{
@@ -71,7 +48,6 @@ json BuildChatPayload(std::vector<ConversationMessage> const& history,
 
     // The decoding parameters are deliberately hard-coded: temperature, top_p and n are left at their defaults.
     json result{
-        { "model", options.modelName },
         { "tools", BuildPayloadToolDefinitions(options.tools) },
         { "stream", options.stream },
         //{ "temperature", 0.7 },
@@ -79,6 +55,10 @@ json BuildChatPayload(std::vector<ConversationMessage> const& history,
         //{ "n", 1 },
         { "messages", std::move(messages) },
     };
+    if (!options.modelName.empty())
+    {
+        result["model"] = options.modelName;
+    }
     if (options.maxTokens != 0)
     {
         result["max_tokens"] = options.maxTokens;

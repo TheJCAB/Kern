@@ -5,6 +5,7 @@
 #include "JsonUtilities.h"
 #include "Logging.h"
 #include "NetworkUtilities.h"
+#include "PromptCommand.h"
 #include "RuntimePaths.h"
 #include "Services.h"
 #include "Session.h"
@@ -364,17 +365,47 @@ int Run(CommandLineOptions const& options)
 
     std::string prompt = options.prompt;
 
+    // A prompt given on the command line is never a command, however it starts.
+    PromptCommand command = ParsePromptCommand(options.prompt, /*allowCommands=*/false);
+
     for (;;)
     {
-        if (prompt.empty())
+        if (command.kind == PromptCommandKind::blank)
         {
             std::print("\n\nEnter prompt: ");
-            std::getline(std::cin, prompt);
+            if (!std::getline(std::cin, prompt))
+            {
+                break;
+            }
+            command = ParsePromptCommand(prompt);
+        }
+
+        // Commands are handled here, so that only real prompts reach the session.
+        if (command.kind != PromptCommandKind::prompt)
+        {
+            switch (command.kind)
+            {
+                case PromptCommandKind::help:
+                    PrintPromptCommands();
+                    break;
+                case PromptCommandKind::bye:
+                    return 0;
+                case PromptCommandKind::unknown:
+                    std::println("Unknown command: /{}{}. Type /help for the list of commands.",
+                        command.name, command.argument.empty() ? "" : " " + command.argument);
+                    break;
+                case PromptCommandKind::prompt:
+                case PromptCommandKind::blank:
+                    // Unreachable: prompt text goes to the session and blank lines ask for input first.
+                    break;
+            }
+            command = PromptCommand{};
+            continue;
         }
 
         // The response is streamed to the console by Session::Prompt, so there is nothing to return.
         // TODO: Make console output optional or configurable.
-        Session::PromptResult const result = session.Prompt(prompt);
+        Session::PromptResult const result = session.Prompt(command.text);
 
         if (!result.ok)
         {
@@ -382,9 +413,11 @@ int Run(CommandLineOptions const& options)
             return 1;
         }
 
-        prompt.clear();
+        command = PromptCommand{};
     }
 
+    // End of input: the session is over, which is not an error.
+    std::println("\nNo more input.");
     return 0;
 }
 

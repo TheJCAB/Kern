@@ -39,6 +39,7 @@ add_executable(kern
     src/FileValidation.cpp      src/FileValidation.h
     src/Logging.cpp             src/Logging.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
+    src/PromptCommand.cpp       src/PromptCommand.h
     src/RunProcess.cpp          src/RunProcess.h
     src/RuntimePaths.cpp        src/RuntimePaths.h
     src/Services.cpp            src/Services.h

@@ -145,3 +145,13 @@ target_include_directories(runtime_paths_tests PRIVATE ../src)
 target_link_libraries(runtime_paths_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME runtime_paths_tests COMMAND runtime_paths_tests)
+
+add_executable(prompt_command_tests
+    PromptCommandTests.cpp
+    ../src/PromptCommand.cpp
+)
+
+target_include_directories(prompt_command_tests PRIVATE ../src)
+target_link_libraries(prompt_command_tests PRIVATE TestUtilities)
+
+add_test(NAME prompt_command_tests COMMAND prompt_command_tests)

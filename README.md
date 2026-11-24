@@ -58,6 +58,23 @@ Add `--session-tag TEXT` to label the run in its transcript, so that the run can
 ./build/Release/kern --session-tag tool-schema-v3 "add a test"
 ```
 
+## Interactive prompts
+
+Without a prompt argument, or once a prompt has been answered, Kern asks for the next one and keeps the conversation going:
+
+```cmd
+Enter prompt: analyze src/main.cpp
+...
+Enter prompt: /help
+Available commands:
+  /help        list the available commands
+  /bye         end the session
+Anything else is sent to the model as a prompt.
+Enter prompt: /bye
+```
+
+A line is a command only when it starts with `/` followed directly by a command word: `/ hello`, `//comment` and `/?` are sent to the model as prompt text, and a prompt given on the command line is never a command. An unknown command is reported instead of being sent to the model. End of input (Ctrl+D, or Ctrl+Z on Windows) ends the session without an error; `/bye` does the same explicitly.
+
 ## Install
 
 Build once, then install into any prefix. The project embeds no machine-specific path, so the prefix is chosen at install time and the installed tree can be moved or copied afterwards.

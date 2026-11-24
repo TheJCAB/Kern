@@ -60,7 +60,7 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 
         Session session = context.createNewSession(context, parentSessionId, "implement", RawReadTextFile(GetRuntimeDataDirectory() / "ImplementSystemPrompt.txt"), tools);
 
-        Session::PromptResult const result = session.Prompt(prompt, SubagentMaxTurns);
+        Session::PromptResult const result = session.Prompt(prompt);
 
         return json{
             { "ok"        , result.ok                                },

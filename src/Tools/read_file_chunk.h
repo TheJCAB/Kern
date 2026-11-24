@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 
-constexpr std::int64_t ReadFileChunkMaxLines = 100;
+constexpr std::int64_t ReadFileChunkMaxLines = 1000;
 
 inline json ReadFileChunkTool(json const& arguments, ToolsRuntimeContext const& context, std::string_view /* parentSessionId */)
 {
@@ -96,9 +96,10 @@ constexpr ToolParameter ReadFileChunkToolOptionalParameters[] =
 constexpr ToolDefinition read_file_chunk
 {
     .name               = "read_file_chunk",
-    .description        = "Read at most 100 lines from a file per call, starting at start_line, regardless of the requested range. "
-                          "The response contains lines (an array of {line, text}), end_of_file, truncated, and - when truncated is true - "
-                          "next_start_line, which should be passed as the next start_line instead of computing ranges yourself.",
+    .description        = "Read some number of lines from a file per call, starting at 'start_line', up until 'end_line'. "
+                          "The response contains 'lines' (an array of {line, text}), 'end_of_file' if the end of the file is reached, "
+                          "'truncated' set to true if the response includes less lines than were requested and in that case "
+                          "'next_start_line', which should be passed as the next 'start_line' instead of computing ranges yourself.",
     .requiredParameters = ReadFileChunkToolRequiredParameters,
     .optionalParameters = ReadFileChunkToolOptionalParameters,
     .callTool           = ReadFileChunkTool,

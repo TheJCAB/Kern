@@ -49,7 +49,7 @@ json BuildChatPayload(std::vector<ConversationMessage> const& history,
     // The decoding parameters are deliberately hard-coded: temperature, top_p and n are left at their defaults.
     json result{
         { "tools", BuildPayloadToolDefinitions(options.tools) },
-        { "stream", options.stream },
+        { "stream", true },
         //{ "temperature", 0.7 },
         //{ "top_p", 1.0 },
         //{ "n", 1 },

@@ -21,6 +21,7 @@
 #include <exception>
 #include <filesystem>
 #include <format>
+#include <iostream>
 #include <optional>
 #include <print>
 #include <span>
@@ -58,7 +59,8 @@ struct SessionSettings
     std::string serviceName;
     std::string commonSystemPrompt;
     std::string workspaceInstructions;
-    unsigned    maxTokens = 0;
+    unsigned    maxTokens = 0; // 0 = no limit
+    unsigned    maxTurns = 0; // 0 = no limit
     // Whether each session writes a transcript; --record off disables it.
     bool record = true;
     // Where transcripts go; empty means GetDefaultLogDirectory(), the per-user state directory when installed.
@@ -121,6 +123,7 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
     settings.record           = options.record;
     settings.sessionDirectory = options.sessionDirectory;
     settings.sessionTag       = options.sessionTag;
+    settings.maxTurns         = options.maxTurns;
 
     settings.commonSystemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "CommonSystemPrompt.txt");
     settings.workspaceInstructions = LoadWorkspaceInstructions();
@@ -164,6 +167,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
                 .modelName          = settings.model,
                 .tools              = tools,
                 .maxTokens          = settings.maxTokens,
+                .maxTurns           = SubagentMaxTurns,
                 .identity           = SessionIdentity{ .parentId{ parentSessionId }, .role{ role }, .tag = settings.sessionTag },
                 .sessionDirectory   = settings.sessionDirectory,
                 .record             = settings.record,
@@ -352,19 +356,33 @@ int Run(CommandLineOptions const& options)
         .modelName          = settings.model,
         .tools              = MainTools,
         .maxTokens          = settings.maxTokens,
+        .maxTurns           = settings.maxTurns,
         .identity           = SessionIdentity{ .role = "main", .tag = settings.sessionTag },
         .sessionDirectory   = settings.sessionDirectory,
         .record             = settings.record,
     }};
 
-    // The response is streamed to the console by Session::Prompt, so there is nothing to return.
-    // TODO: Make console output optional or configurable.
-    Session::PromptResult const result = session.Prompt(options.prompt, options.maxTurns);
+    std::string prompt = options.prompt;
 
-    if (!result.ok)
+    for (;;)
     {
-        std::fprintf(stderr, "error: %s (%s after %u turns)\n", result.content.c_str(), result.errorCode.c_str(), result.turnsUsed);
-        return 1;
+        if (prompt.empty())
+        {
+            std::print("\n\nEnter prompt: ");
+            std::getline(std::cin, prompt);
+        }
+
+        // The response is streamed to the console by Session::Prompt, so there is nothing to return.
+        // TODO: Make console output optional or configurable.
+        Session::PromptResult const result = session.Prompt(prompt);
+
+        if (!result.ok)
+        {
+            std::fprintf(stderr, "error: %s (%s after %u turns)\n", result.content.c_str(), result.errorCode.c_str(), result.turnsUsed);
+            return 1;
+        }
+
+        prompt.clear();
     }
 
     return 0;

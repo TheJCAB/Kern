@@ -10,7 +10,6 @@ struct Endpoint
     std::uint32_t port   = 0;
     std::string   path;
     bool          secure = false; // true for https
-    bool          stream = true;
 
     // Secret. Sent as a Bearer token if not empty. Never print or log this.
     std::string   apiKey;

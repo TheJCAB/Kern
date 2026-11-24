@@ -182,7 +182,6 @@ Add your own in `~/.config/Kern/services.json` (Linux; `$XDG_CONFIG_HOME/Kern/se
 | `model` | no | Default model for this service (the default is `gemma4`). |
 | `allowInsecure` | no | Permits plain `http://` to a host that isn't this machine. |
 | `maxTokens` | no | Caps the output of each response (sent as `max_tokens`). Some services reserve credits for the model's maximum output on every request, so a lower cap can avoid "insufficient balance" or rate-limit errors. Unset by default. |
-| `stream` | no | Whether to request streamed SSE responses. Defaults to `true`; set to `false` for a service that returns one complete response body. |
 
 ### Providing the API key
 

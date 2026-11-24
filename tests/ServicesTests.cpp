@@ -99,11 +99,6 @@ int main()
         ExpectEqual(ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":4096}}})")[0].maxTokens, 4096u, "maxTokens parsed");
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":0}}})"); }), "maxTokens must be positive");
         Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","maxTokens":"big"}}})"); }), "maxTokens must be a number");
-        {
-            auto const explicitTransport = ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","stream":false}}})")[0];
-            Expect(!explicitTransport.stream, "stream parsed");
-        }
-        Expect(Throws([] { ParseServicesConfig(R"({"services":{"a":{"endpoint":"https://x","stream":"yes"}}})"); }), "stream must be boolean");
     }
 
     std::println("Test ParseAvailableModels");

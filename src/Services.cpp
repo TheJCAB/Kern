@@ -39,9 +39,9 @@ std::string ReadString(json const& object, std::string const& service, char cons
 std::vector<ServiceDefinition> BuiltInServices()
 {
     return {
-        { .name = "llama.cpp", .endpoint = "http://127.0.0.1:8080/v1/chat/completions" , .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0, .stream = true },
-        { .name = "ollama",    .endpoint = "http://127.0.0.1:11434/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0, .stream = true },
-        { .name = "strata",    .endpoint = "http://127.0.0.1:47831/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0, .stream = true },
+        { .name = "llama.cpp", .endpoint = "http://127.0.0.1:8080/v1/chat/completions" , .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 },
+        { .name = "ollama",    .endpoint = "http://127.0.0.1:11434/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 },
+        { .name = "strata",    .endpoint = "http://127.0.0.1:47831/v1/chat/completions", .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 },
     };
 }
 
@@ -99,7 +99,7 @@ std::vector<ServiceDefinition> ParseServicesConfig(std::string_view const jsonTe
             throw std::runtime_error(std::format("Service '{}' must be an object", name));
         }
 
-        ServiceDefinition service{ .name = name, .endpoint = {}, .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0, .stream = true };
+        ServiceDefinition service{ .name = name, .endpoint = {}, .apiKeyEnv = {}, .model = {}, .allowInsecure = false, .maxTokens = 0 };
         for (auto const& [key, value] : entry.items())
         {
             if (key == "apiKey")
@@ -141,14 +141,6 @@ std::vector<ServiceDefinition> ParseServicesConfig(std::string_view const jsonTe
                 throw std::runtime_error(std::format("Service '{}': 'maxTokens' must be a positive integer", name));
             }
             service.maxTokens = it->get<unsigned>();
-        }
-        if (auto const it = entry.find("stream"); it != entry.end())
-        {
-            if (!it->is_boolean())
-            {
-                throw std::runtime_error(std::format("Service '{}': 'stream' must be true or false", name));
-            }
-            service.stream = it->get<bool>();
         }
 
         result.push_back(std::move(service));
@@ -231,7 +223,6 @@ Endpoint ResolveService(ServiceDefinition const& service, std::span<std::unique_
     {
         throw std::runtime_error(std::format("Service '{}': no usable API key found. Set the environment variable {}", service.name, service.apiKeyEnv));
     }
-    endpoint.stream = service.stream;
 
     return endpoint;
 }

@@ -69,9 +69,9 @@ struct Session::Pimpl
         , m_modelName         { config.modelName                         }
         , m_tools             { config.tools.begin(), config.tools.end() }
         , m_maxTokens         { config.maxTokens                         }
+        , m_maxTurns          { config.maxTurns                         }
         , m_id                { config.identity                          }
         , m_log               { MakeRecorderDirectory(config), MakeLogPrefix(config.identity) }
-        , m_transport         { m_endpointDescriptor, m_log              }
         , m_recorder          { config.identity,
                                 MakeRecorderProvenance(config),
                                 MakeRecorderInputs(config),
@@ -89,13 +89,9 @@ struct Session::Pimpl
         m_conversationHistory.push_back({ .role = "system", .content = std::move(systemPrompt) });
 
         std::println("log id: {}", m_log.Id());
-
-        // The decoding parameters actually sent; BuildPayload hard-codes streaming and only sends max_tokens when
-        // non-zero.
-        m_recorder.SetDecoding(json{ { "stream", m_transport.StreamsResponse() }, { "maxTokens", m_maxTokens } });
     }
 
-    PromptResult RunPrompt(std::string_view prompt, unsigned maxTurns)
+    PromptResult RunPrompt(std::string_view prompt)
     {
         if (prompt.empty())
         {
@@ -108,24 +104,44 @@ struct Session::Pimpl
 
         TokenLimitRecovery recovery;
 
-        for (unsigned turn = 0; turn < maxTurns; ++turn, m_log.Advance())
+        while (m_maxTurns == 0 || m_currentTurn < m_maxTurns)
         {
-            TurnRecord turnRecord{ m_recorder, turn };
-            std::println("===============================\nTurn {} [{}]", turn, m_log.Id());
+            m_log.SetSequence(m_currentTurn);
+
+            TurnRecord turnRecord{ m_recorder, m_currentTurn };
+            std::println("===============================\nTurn {} [{}]", m_currentTurn, m_log.Id());
             try
             {
-                json const payload = BuildChatPayload(m_conversationHistory, recovery.Messages(), { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens, .stream = m_transport.StreamsResponse() });
-                Log(LogLevel::debug, "turn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
-                    turn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_log.Sequence());
+                json const payload = BuildChatPayload(m_conversationHistory, recovery.Messages(), { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens });
+                Log(LogLevel::debug, "m_currentTurn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
+                    m_currentTurn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_currentTurn);
 
-                ChatTransport::Exchange const exchange = m_transport.Send(payload);
+                ++m_currentTurn;
+
+                ChatTransport::Exchange const exchange = ChatTransport::SendStreamedChatRequest(m_endpointDescriptor, payload, m_log);
+
+                json assembledResponse{
+                    { "reason"   , to_string(exchange.response.reason) },
+                    { "reasoning", exchange.response.reasoning         },
+                    { "content"  , exchange.response.content           },
+                };
+
+                json::array_t tool_calls;
+                for (auto&& call : exchange.response.toolCalls)
+                {
+                    tool_calls.push_back(json{
+                        { "id"       , call.id },
+                        { "name"     , call.name },
+                        { "arguments", call.arguments },
+                    });
+                }
+
+                assembledResponse["tool_calls"] = std::move(tool_calls);
+
+                m_log.Write("response", assembledResponse.dump(2));
+
                 turnRecord.SetResponseDuration(exchange.duration);
                 ModelResponse modelResponse = exchange.response;
-
-                if (!modelResponse.reasoning.empty() && !m_transport.StreamsResponse())
-                {
-                    std::println("\nreasoning> {}\n", modelResponse.reasoning);
-                }
 
                 if (exchange.usage.is_object() && !exchange.usage.empty())
                 {
@@ -153,10 +169,6 @@ struct Session::Pimpl
                             .content = std::move(modelResponse.content),
                         });
                         continue;
-                    }
-                    else if (!m_transport.StreamsResponse()) // Otherwise, we already printed during streaming
-                    {
-                        std::println("\nassistant> {}\n", modelResponse.content);
                     }
                 }
 
@@ -199,7 +211,7 @@ struct Session::Pimpl
                             .ok        = true,
                             .errorCode = {},
                             .content   = std::move(modelResponse.content),
-                            .turnsUsed = turn + 1,
+                            .turnsUsed = m_currentTurn,
                         };
                     }
                 }
@@ -224,7 +236,7 @@ struct Session::Pimpl
                                 .ok        = true,
                                 .errorCode = {},
                                 .content   = std::move(modelResponse.content),
-                                .turnsUsed = turn + 1,
+                                .turnsUsed = m_currentTurn,
                             };
                         }
                     }
@@ -254,7 +266,7 @@ struct Session::Pimpl
                         .ok        = false,
                         .errorCode = "length",
                         .content   = "The model hit the token limit repeatedly without producing a tool call or an answer",
-                        .turnsUsed = turn + 1,
+                        .turnsUsed = m_currentTurn,
                     };
                 }
                 else
@@ -270,19 +282,19 @@ struct Session::Pimpl
             }
         }
 
-        return  { .ok = false, .errorCode = "too_many_turns", .content = "The model took too many turns", .turnsUsed = maxTurns };
+        return  { .ok = false, .errorCode = "too_many_turns", .content = "The model took too many turns", .turnsUsed = m_maxTurns };
     }
 
     // Writes the session manifest before the first request and rewrites it with the outcome afterwards; a throw
     // leaves the manifest marked incomplete, which the harness refuses.
-    PromptResult Prompt(std::string_view prompt, unsigned maxTurns)
+    PromptResult Prompt(std::string_view prompt)
     {
-        m_recorder.BeginSession(maxTurns, prompt);
+        m_recorder.BeginSession(m_maxTurns, prompt);
 
         PromptResult result{};
         try
         {
-            result = RunPrompt(prompt, maxTurns);
+            result = RunPrompt(prompt);
         }
         catch (std::exception const& error)
         {
@@ -299,17 +311,17 @@ struct Session::Pimpl
         return result;
     }
 
-
     Endpoint                         m_endpointDescriptor;
     ToolsRuntimeContext              m_toolContext;
     std::string                      m_modelName;
     std::vector<ToolDefinition>      m_tools;
     unsigned                         m_maxTokens = 0;
+    unsigned                         m_maxTurns = 0;
+    unsigned                         m_currentTurn = 0;
 
     std::vector<ConversationMessage> m_conversationHistory;
     SessionIdentity                  m_id;
     LogFile                          m_log;
-    ChatTransport                    m_transport;
     // Writes <id>_session.json beside the per-turn log files; best effort, never throws.
     SessionRecorder                  m_recorder;
 };
@@ -332,7 +344,7 @@ Session::Session(Session&&) = default;
 
 Session& Session::operator=(Session&&) = default;
 
-Session::PromptResult Session::Prompt(std::string_view prompt, unsigned maxTurns)
+Session::PromptResult Session::Prompt(std::string_view prompt)
 {
-    return m_pimpl->Prompt(prompt, maxTurns);
+    return m_pimpl->Prompt(prompt);
 }

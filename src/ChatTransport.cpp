@@ -62,49 +62,43 @@ namespace
     }
 }
 
-ChatTransport::ChatTransport(Endpoint endpoint, LogFile& log)
-    : m_endpoint{ std::move(endpoint) }
-    , m_log     { log              }
-{
-}
+//ChatTransport::Exchange ChatTransport::SendChatRequest(Endpoint endpoint, json const& payload, LogFile& log)
+//{
+//    Exchange exchange;
+//    ModelResponse modelResponse;
+//
+//    log.Write("request", payload.dump(2));
+//
+//    auto const requestStart = std::chrono::steady_clock::now();
+//    HttpResult const httpResult = PostWithRetry(endpoint, payload, [](auto){});
+//    exchange.duration = std::chrono::steady_clock::now() - requestStart;
+//    if (IsLogEnabled(LogLevel::debug))
+//    {
+//        log.Write("response_raw", httpResult.body, "txt");
+//    }
+//    CheckHttpResult(httpResult);
+//    std::string const& responseBody = httpResult.body;
+//    //std::cout << "Response: " << responseBody << std::endl;
+//
+//    json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
+//    if (response.contains("usage"))
+//    {
+//        exchange.usage = response.at("usage");
+//    }
+//    log.Write("response", response.dump(2));
+//
+//    exchange.response = ExtractModelContent(response);
+//    Log(LogLevel::debug, "finish_reason: {}, content: {} chars, tool calls: {}",
+//        to_string(exchange.response.reason), exchange.response.content.size(), exchange.response.toolCalls.size());
+//    return exchange;
+//}
 
-bool ChatTransport::StreamsResponse() const
-{
-    return m_endpoint.stream;
-}
-
-ChatTransport::Exchange ChatTransport::Send(json const& payload)
+ChatTransport::Exchange ChatTransport::SendStreamedChatRequest(Endpoint endpoint, json const& payload, LogFile& log)
 {
     Exchange exchange;
     ModelResponse modelResponse;
 
-    m_log.Write("request", payload.dump(2));
-
-    if (!StreamsResponse())
-    {
-        auto const requestStart = std::chrono::steady_clock::now();
-        HttpResult const httpResult = PostWithRetry(m_endpoint, payload, [](auto){});
-        exchange.duration = std::chrono::steady_clock::now() - requestStart;
-        if (IsLogEnabled(LogLevel::debug))
-        {
-            m_log.Write("response_raw", httpResult.body, "txt");
-        }
-        CheckHttpResult(httpResult);
-        std::string const& responseBody = httpResult.body;
-        //std::cout << "Response: " << responseBody << std::endl;
-
-        json const response = json::parse(responseBody.begin(), responseBody.end(), nullptr, false);
-        if (response.contains("usage"))
-        {
-            exchange.usage = response.at("usage");
-        }
-        m_log.Write("response", response.dump(2));
-
-        exchange.response = ExtractModelContent(response);
-        Log(LogLevel::debug, "finish_reason: {}, content: {} chars, tool calls: {}",
-            to_string(exchange.response.reason), exchange.response.content.size(), exchange.response.toolCalls.size());
-        return exchange;
-    }
+    log.Write("request", payload.dump(2));
 
     json response;
 
@@ -164,11 +158,11 @@ ChatTransport::Exchange ChatTransport::Send(json const& payload)
         };
 
     auto const requestStart = std::chrono::steady_clock::now();
-    HttpResult const httpResult = PostWithRetry(m_endpoint, payload, sseCallback);
+    HttpResult const httpResult = PostWithRetry(endpoint, payload, sseCallback);
     exchange.duration = std::chrono::steady_clock::now() - requestStart;
     if (IsLogEnabled(LogLevel::debug))
     {
-        m_log.Write("response_raw", httpResult.body, "txt");
+        log.Write("response_raw", httpResult.body, "txt");
     }
     CheckHttpResult(httpResult);
 
@@ -199,26 +193,7 @@ ChatTransport::Exchange ChatTransport::Send(json const& payload)
         );
     }
 
-    json assembledResponse{
-        { "reason"   , to_string(modelResponse.reason) },
-        { "reasoning", modelResponse.reasoning         },
-        { "content"  , modelResponse.content           },
-    };
-
-    json::array_t tool_calls;
-    for (auto&& call : modelResponse.toolCalls)
-    {
-        tool_calls.push_back(json{
-            { "id"       , call.id },
-            { "name"     , call.name },
-            { "arguments", call.arguments },
-        });
-    }
-
-    assembledResponse["tool_calls"] = std::move(tool_calls);
-
-    m_log.Write("response", assembledResponse.dump(2));
-
     exchange.response = std::move(modelResponse);
+
     return exchange;
 }

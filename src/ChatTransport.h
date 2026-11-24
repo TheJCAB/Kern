@@ -23,14 +23,7 @@ public:
 
     ChatTransport(Endpoint endpoint, LogFile& log);
 
-    // Whether this endpoint expects streamed SSE responses.
-    bool StreamsResponse() const;
-
     // Sends `payload` and returns the normalised answer, saving the request artifact and, at debug level, the raw
     // response body. Throws std::runtime_error when the transport fails or the answer is malformed.
-    Exchange Send(json const& payload);
-
-private:
-    Endpoint m_endpoint;
-    LogFile& m_log;
+    static Exchange SendStreamedChatRequest(Endpoint, json const& payload, LogFile&);
 };

@@ -22,10 +22,7 @@ public:
     std::string const& Id() const { return m_id; }
 
     // Sequence number of the artifacts written next; it starts at zero.
-    int Sequence() const { return m_sequence; }
-
-    // Advances the sequence number used by subsequent paths and writes; returns the new value.
-    int Advance() { return ++m_sequence; }
+    void SetSequence(unsigned int sequence) { m_sequence = sequence; }
 
     // Full path of one artifact, with the sequence number zero-padded to three digits.
     std::filesystem::path Path(std::string_view name, std::string_view extension = "json") const;

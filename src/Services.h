@@ -19,7 +19,6 @@ struct ServiceDefinition
     std::string model;                 // default model name; empty if unspecified
     bool        allowInsecure = false; // permits plain http to a non-loopback host
     unsigned    maxTokens = 0;         // per-response output limit sent as max_tokens; 0 = don't send one
-    bool        stream = true;         // true to request a streamed response
 };
 
 class CredentialSource;

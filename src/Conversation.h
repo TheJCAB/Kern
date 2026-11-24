@@ -28,7 +28,6 @@ struct ChatPayloadOptions
     std::string                     modelName{};
     std::span<ToolDefinition const> tools    {};
     unsigned                        maxTokens = 0; // 0 = send no limit
-    bool                            stream    = true;
 };
 
 // Builds the request body: `history` followed by `transientMessages`, which are shown to the model for this

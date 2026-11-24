@@ -32,6 +32,7 @@ public:
         std::string                     modelName;
         std::span<ToolDefinition const> tools;
         unsigned                        maxTokens = 0; // 0 = don't send a limit
+        unsigned                        maxTurns = 0; // 0 = no limit
         // Which session this is: an empty `id` means "derive it from the log id", an empty `role`
         // means "main", and `tag` is a free-form label such as `tool-schema-v3`.
         SessionIdentity                 identity{};
@@ -49,7 +50,7 @@ public:
     Session(Session&&);
     Session& operator=(Session&&);
 
-    PromptResult Prompt(std::string_view prompt, unsigned maxTurns);
+    PromptResult Prompt(std::string_view prompt);
 
 private:
     struct Pimpl;

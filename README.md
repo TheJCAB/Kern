@@ -60,7 +60,7 @@ Add `--session-tag TEXT` to label the run in its transcript, so that the run can
 
 ## Interactive prompts
 
-Without a prompt argument, or once a prompt has been answered, Kern asks for the next one and keeps the conversation going:
+Running Kern without a prompt argument, or after a prompt has been answered, drops straight into the next prompt and keeps the conversation going:
 
 ```cmd
 Enter prompt: analyze src/main.cpp
@@ -73,7 +73,17 @@ Anything else is sent to the model as a prompt.
 Enter prompt: /bye
 ```
 
-A line is a command only when it starts with `/` followed directly by a command word: `/ hello`, `//comment` and `/?` are sent to the model as prompt text, and a prompt given on the command line is never a command. An unknown command is reported instead of being sent to the model. End of input (Ctrl+D, or Ctrl+Z on Windows) ends the session without an error; `/bye` does the same explicitly.
+A line is a command only when it starts with `/` followed directly by a command word: `/ hello`, `//comment` and `/?` are sent to the model as prompt text, and a prompt given on the command line is never a command. The same holds for a prompt read from a file with `--prompt-file`: the file's contents are prompt text, never a command. An unknown command is reported instead of being sent to the model. End of input (Ctrl+D, or Ctrl+Z on Windows) ends the session without an error; `/bye` does the same explicitly.
+
+## Prompt files
+
+A long or multi-line prompt, including one that contains non-ASCII text, is easier to keep in a file than to quote on the command line:
+
+```bash
+./build/Release/kern --prompt-file notes.md
+```
+
+Kern reads the file verbatim as the first prompt, newlines included, so the model sees a multi-line prompt, and then continues in the REPL as usual. A leading UTF-8 byte order mark is dropped so that files saved by Windows editors work. `--prompt-file` and a prompt argument on the command line cannot be combined, and an unreadable file aborts the run with an error.
 
 ## Install
 
@@ -166,7 +176,7 @@ Some services are built in and need no configuration or key:
 
 Use `--list-services` to see all services and whether their keys are set (key values are never shown). Use `--show-sessions` instead to see the recorded sessions: it prints a table of their id, tag, model and completion flag, then a count, and a manifest it cannot parse is listed as `unreadable` rather than skipped.
 
-Other options: `--model NAME` overrides the service's default model, `--port N` overrides the endpoint's port, and `--endpoint URL` uses an ad-hoc endpoint that needs no key. `--record <on|off>` controls session recording (`on` is the default, and `off` disables it entirely), `--keep-awake <on|off>` asks the operating system not to suspend the computer while a prompt is interacting with the model (`on` is the default, and `off` leaves the system's own power policy untouched; on Windows this is done with `SetThreadExecutionState`, on Linux Kern holds an automatic-suspend (idle) inhibitor lock through `systemd-inhibit` when that tool is installed and on macOS through `caffeinate`, which is why a manual suspend such as closing a laptop lid still works, and where no inhibitor can be obtained Kern simply does nothing). The inhibitor is released before Kern returns to the REPL and waits for the next prompt. `--session-dir PATH` writes the transcripts somewhere other than the `logs/` directory beside the executable, and `--session-tag TEXT` labels a run, for example `tool-schema-v3`.
+Other options: `--model NAME` overrides the service's default model, `--port N` overrides the endpoint's port, `--endpoint URL` uses an ad-hoc endpoint that needs no key, and `--prompt-file PATH` reads the first prompt from a file instead of the command line (see [Prompt files](#prompt-files)). `--record <on|off>` controls session recording (`on` is the default, and `off` disables it entirely), `--keep-awake <on|off>` asks the operating system not to suspend the computer while a prompt is interacting with the model (`on` is the default, and `off` leaves the system's own power policy untouched; on Windows this is done with `SetThreadExecutionState`, on Linux Kern holds an automatic-suspend (idle) inhibitor lock through `systemd-inhibit` when that tool is installed and on macOS through `caffeinate`, which is why a manual suspend such as closing a laptop lid still works, and where no inhibitor can be obtained Kern simply does nothing). The inhibitor is released before Kern returns to the REPL and waits for the next prompt. `--session-dir PATH` writes the transcripts somewhere other than the `logs/` directory beside the executable, and `--session-tag TEXT` labels a run, for example `tool-schema-v3`.
 
 ### Declaring services
 

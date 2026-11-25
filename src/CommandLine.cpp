@@ -193,6 +193,11 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
         {
             options.sessionTag = std::string(NextArgument(arguments, i, "--session-tag"));
         }
+        else if (argument == "--prompt-file")
+        {
+            RejectDuplicate(options.promptFile.has_value(), "--prompt-file");
+            options.promptFile = std::string(NextArgument(arguments, i, "--prompt-file"));
+        }
         else if (argument == "--")
         {
             // Everything that follows is prompt text, even if it looks like an option.
@@ -212,17 +217,16 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
         }
     }
 
-    if (options.prompt.empty())
+    if (options.promptFile.has_value() && !options.prompt.empty())
     {
-        throw UsageError{"Required prompt is missing"};
+        throw UsageError{"--prompt-file and a prompt on the command line may not be combined"};
     }
     return options;
 }
 
 void PrintUsage(std::FILE* stream)
 {
-    std::print(stream, "Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--record MODE] [--keep-awake MODE] [--session-dir PATH] [--session-tag TEXT] [--list-services] [--show-sessions] [--] PROMPT\n");
-    std::print(stream, "  --help, -h         show this help and exit\n");
+    std::print(stream, "Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--record MODE] [--keep-awake MODE] [--session-dir PATH] [--session-tag TEXT] [--prompt-file PATH] [--list-services] [--show-sessions] [--] [PROMPT]\n");
     std::print(stream, "  --list-services    list known services and exit\n");
     std::print(stream, "  --show-sessions    print a table of recorded sessions with their tags, model and completion flag\n");
     std::print(stream, "  --log-level LEVEL  diagnostics on stderr: off, error, warning (default), info, debug, trace\n");
@@ -236,4 +240,6 @@ void PrintUsage(std::FILE* stream)
     std::print(stream, "  --session-dir PATH write transcripts to PATH instead of the default log directory\n");
     std::print(stream, "  --session-tag TEXT label recorded runs with TEXT, e.g. tool-schema-v3\n");
     std::print(stream, "  --                 treat all remaining arguments as part of PROMPT\n");
+    std::print(stream, "  --prompt-file PATH read the initial prompt from PATH; the file may hold any UTF-8 text and several lines\n");
+    std::print(stream, "  PROMPT             optional; without it (or with an empty one) kern goes straight to the interactive prompt\n");
 }

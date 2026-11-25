@@ -32,6 +32,7 @@
 #include <optional>
 #include <print>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -331,6 +332,27 @@ std::vector<std::string> DiscoverModels(Endpoint const& endpoint)
     }
 }
 
+// A prompt file supplies text verbatim, so it may hold any UTF-8 characters and span
+// several lines; only the byte order mark a Windows editor may add is dropped.
+std::string ReadPromptFile(std::filesystem::path const& path)
+{
+    std::string text;
+    try
+    {
+        text = RawReadTextFile(path);
+    }
+    catch (std::exception const& e)
+    {
+        throw std::runtime_error{std::format("could not read the prompt file '{}': {}", path.string(), e.what())};
+    }
+
+    if (text.starts_with("\xEF\xBB\xBF"))
+    {
+        text.erase(0, 3);
+    }
+    return text;
+}
+
 int Run(CommandLineOptions const& options)
 {
     SessionSettings settings = ResolveSessionSettings(options);
@@ -376,10 +398,11 @@ int Run(CommandLineOptions const& options)
         .record             = settings.record,
     }};
 
-    std::string prompt = options.prompt;
+    std::string const initialPrompt = options.promptFile ? ReadPromptFile(*options.promptFile) : options.prompt;
+    std::string prompt = initialPrompt;
 
-    // A prompt given on the command line is never a command, however it starts.
-    PromptCommand command = ParsePromptCommand(options.prompt, /*allowCommands=*/false);
+    // A prompt given on the command line or in a prompt file is never a command, however it starts.
+    PromptCommand command = ParsePromptCommand(initialPrompt, /*allowCommands=*/false);
 
     for (;;)
     {

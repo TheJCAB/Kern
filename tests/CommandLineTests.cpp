@@ -4,6 +4,7 @@
 #include "TestUtilities.h"
 
 #include <exception>
+#include <filesystem>
 #include <initializer_list>
 #include <print>
 #include <stdexcept>
@@ -164,6 +165,25 @@ int main()
         Expect(ThrowsUsageError([&] { Parse({ "--keep-awake" }); }), "--keep-awake without a value");
     }
 
+    std::println("Test PromptFile");
+    {
+        auto const promptFile = Parse({ "--prompt-file", "notes.txt" });
+        Expect(promptFile.promptFile.has_value(), "--prompt-file sets the prompt file");
+        Expect(*promptFile.promptFile == std::filesystem::path{"notes.txt"}, "--prompt-file keeps the path");
+        Expect(promptFile.prompt.empty(), "--prompt-file leaves the prompt empty");
+
+        auto const withModel = Parse({ "--prompt-file", "notes.txt", "--model", "m" });
+        Expect(*withModel.promptFile == std::filesystem::path{"notes.txt"}, "--prompt-file with --model keeps the path");
+        Expect(withModel.model.has_value(), "--prompt-file with --model sets the model");
+        ExpectEqual(withModel.model.value_or(""), "m", "--prompt-file with --model keeps the model value");
+
+        Expect(!Parse({ "hi" }).promptFile.has_value(), "the prompt file is empty by default");
+
+        Expect(ThrowsUsageError([&] { Parse({ "--prompt-file" }); }), "--prompt-file without a value");
+        Expect(ThrowsUsageError([&] { Parse({ "--prompt-file", "a", "--prompt-file", "b" }); }), "duplicate --prompt-file");
+        Expect(ThrowsUsageError([&] { Parse({ "--prompt-file", "a", "some prompt" }); }), "--prompt-file combined with a prompt");
+    }
+
     std::println("Test UsageErrors");
     {
         Expect(Throws([&] { Parse({ "--modle", "foo", "hi" }); }), "unknown option");
@@ -182,8 +202,15 @@ int main()
         Expect(Throws([&] { Parse({ "--service", "a", "--endpoint", "b", "hi" }); }), "--service combined with --endpoint");
         Expect(Throws([&] { Parse({ "--endpoint", "b", "--service", "a", "hi" }); }), "--service after --endpoint");
         Expect(Throws([&] { Parse({ "--service", "a", "--service", "b", "hi" }); }), "duplicate --service");
-        Expect(Throws([&] { Parse({}); }), "missing prompt");
-        Expect(Throws([&] { Parse({ "--" }); }), "missing prompt after --");
+        auto const noArguments = Parse({});
+        Expect(noArguments.prompt.empty(), "an absent prompt is allowed");
+        Expect(noArguments.action == CommandLineAction::run, "no arguments means the run action");
+        Expect(!noArguments.promptFile.has_value(), "no arguments leaves the prompt file empty");
+
+        auto const afterDoubleDash = Parse({ "--" });
+        Expect(afterDoubleDash.prompt.empty(), "an absent prompt after -- is allowed");
+        Expect(afterDoubleDash.action == CommandLineAction::run, "-- alone does not change the action");
+        Expect(!afterDoubleDash.promptFile.has_value(), "-- alone leaves the prompt file empty");
         Expect(Throws([&] { Parse({ "--log-level", "bogus", "hi" }); }), "invalid --log-level");
     }
 

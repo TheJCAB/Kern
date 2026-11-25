@@ -39,15 +39,15 @@ struct CommandLineOptions
     std::optional<LogLevel>       logLevel{};
     unsigned                      maxTurns = DefaultMaxTurns;
     std::string                   prompt{};
+    std::optional<std::filesystem::path> promptFile{}; // read the initial prompt from this file; the text is used verbatim, so it may be multi-line UTF-8
     bool                          record = true;      // write a session manifest and turn file for every run; --record off disables it
     bool                          keepAwake = true;   // ask the operating system not to suspend while a prompt interacts with the model; --keep-awake off disables it
     std::filesystem::path         sessionDirectory{}; // where transcripts go; empty means the logs/ directory beside the executable
     std::string                   sessionTag{};       // free-form label recorded in the manifest and used to select runs, e.g. tool-schema-v3
 };
 
-// Parses the arguments that follow the program name (i.e. argv[1..argc-1]).
 // Throws UsageError for unknown options, missing option values, malformed
-// numbers, duplicate/conflicting options, and for a missing prompt.
+// numbers, and duplicate/conflicting options.
 CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments);
 
 // Writes the usage block to 'stream' (stdout by default; errors pass stderr).

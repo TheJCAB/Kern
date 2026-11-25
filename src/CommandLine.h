@@ -40,6 +40,7 @@ struct CommandLineOptions
     unsigned                      maxTurns = DefaultMaxTurns;
     std::string                   prompt{};
     bool                          record = true;      // write a session manifest and turn file for every run; --record off disables it
+    bool                          keepAwake = true;   // ask the operating system not to suspend while a prompt interacts with the model; --keep-awake off disables it
     std::filesystem::path         sessionDirectory{}; // where transcripts go; empty means the logs/ directory beside the executable
     std::string                   sessionTag{};       // free-form label recorded in the manifest and used to select runs, e.g. tool-schema-v3
 };

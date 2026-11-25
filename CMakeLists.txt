@@ -44,6 +44,7 @@ add_executable(kern
     src/RunProcess.cpp          src/RunProcess.h
     src/RuntimePaths.cpp        src/RuntimePaths.h
     src/Services.cpp            src/Services.h
+    src/SleepInhibitor.cpp      src/SleepInhibitor.h
     src/StringUtilities.cpp     src/StringUtilities.h
     src/ToolUtilities.cpp       src/ToolUtilities.h
     src/XmlToolCallParser.cpp   src/XmlToolCallParser.h

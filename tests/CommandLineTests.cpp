@@ -138,7 +138,7 @@ int main()
     {
         Expect(!Parse({ "--record", "off", "hi" }).record, "--record off disables recording");
         Expect(Parse({ "--record", "on", "hi" }).record, "--record on enables recording");
-        Expect(Parse({ "--record", "auto", "hi" }).record, "--record auto currently behaves as on");
+        Expect(ThrowsUsageError([&] { Parse({ "--record", "auto", "hi" }); }), "--record rejects auto");
         Expect(Parse({ "hi" }).record, "recording is on by default");
         Expect(ThrowsUsageError([&] { Parse({ "--record", "maybe", "hi" }); }), "--record rejects unknown modes");
         Expect(ThrowsUsageError([&] { Parse({ "--record" }); }), "--record without a value");
@@ -153,6 +153,15 @@ int main()
         auto const promptFirst = Parse({ "hi", "--session-tag", "tool-schema-v3" });
         ExpectEqual(promptFirst.prompt, std::string("hi"), "the prompt before the session options is kept");
         ExpectEqual(promptFirst.sessionTag, std::string("tool-schema-v3"), "--session-tag after the prompt is parsed");
+    }
+
+    std::println("Test SessionKeepAwakeOptions");
+    {
+        Expect(Parse({ "hi" }).keepAwake, "keep-awake is on by default");
+        Expect(!Parse({ "--keep-awake", "off", "hi" }).keepAwake, "--keep-awake off disables keep-awake");
+        Expect(Parse({ "--keep-awake", "on", "hi" }).keepAwake, "--keep-awake on enables keep-awake");
+        Expect(ThrowsUsageError([&] { Parse({ "--keep-awake", "maybe", "hi" }); }), "--keep-awake rejects unknown modes");
+        Expect(ThrowsUsageError([&] { Parse({ "--keep-awake" }); }), "--keep-awake without a value");
     }
 
     std::println("Test UsageErrors");

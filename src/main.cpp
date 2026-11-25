@@ -10,6 +10,7 @@
 #include "Services.h"
 #include "Session.h"
 #include "SessionRecorder.h"
+#include "SleepInhibitor.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
 #include "TurnLimitRecovery.h"
@@ -465,6 +466,15 @@ int Run(CommandLineOptions const& options)
         Session::PromptResult result;
         try
         {
+            // Hold the inhibitor only while this prompt is interacting with the model. It is deliberately
+            // scoped to one Session::Prompt call: while the REPL is waiting for user input, `/help`, `/bye`,
+            // or `/continue`, the process may let the operating system suspend normally.
+            std::optional<SleepInhibitor> keepAwake;
+            if (options.keepAwake)
+            {
+                keepAwake.emplace();
+                Log(LogLevel::debug, "keep-awake: {}", keepAwake->IsActive() ? "engaged" : "unavailable");
+            }
             result = session.Prompt(command.text);
         }
         catch (std::exception const& error)

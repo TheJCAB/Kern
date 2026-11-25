@@ -160,14 +160,29 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
             {
                 options.record = false;
             }
-            else if (value == "on" || value == "auto")
+            else if (value == "on")
             {
-                // 'auto' currently behaves as 'on', matching the design's default.
                 options.record = true;
             }
             else
             {
-                throw UsageError{std::format("Invalid --record argument: {} (use on, off or auto)", value)};
+                throw UsageError{std::format("Invalid --record argument: {} (use on or off)", value)};
+            }
+        }
+        else if (argument == "--keep-awake")
+        {
+            std::string_view const value = NextArgument(arguments, i, "--keep-awake");
+            if (value == "off")
+            {
+                options.keepAwake = false;
+            }
+            else if (value == "on")
+            {
+                options.keepAwake = true;
+            }
+            else
+            {
+                throw UsageError{std::format("Invalid --keep-awake argument: {} (use on or off)", value)};
             }
         }
         else if (argument == "--session-dir")
@@ -206,18 +221,19 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
 
 void PrintUsage(std::FILE* stream)
 {
-    std::print(stream, "Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--record MODE] [--session-dir PATH] [--session-tag TEXT] [--list-services] [--show-sessions] [--] PROMPT\n");
-    std::print(stream, "  --help, -h        show this help and exit\n");
-    std::print(stream, "  --list-services   list known services and exit\n");
-    std::print(stream, "  --show-sessions   print a table of recorded sessions with their tags, model and completion flag\n");
-    std::print(stream, "  --log-level LEVEL diagnostics on stderr: off, error, warning (default), info, debug, trace\n");
-    std::print(stream, "  --service NAME    use a service from the built-ins or the services file ({})\n", GetServicesConfigPath().string());
-    std::print(stream, "  --endpoint URL    use an ad-hoc endpoint that needs no API key ('ollama' and 'llama.cpp' are accepted as service names)\n");
-    std::print(stream, "  --model NAME      override the model name reported by the service\n");
-    std::print(stream, "  --port N          override the port of the resolved endpoint\n");
-    std::print(stream, "  --max-turns N     give up after N agent turns (default {})\n", DefaultMaxTurns);
-    std::print(stream, "  --record MODE     session recording: on (default), off or auto (currently the same as on)\n");
-    std::print(stream, "  --session-dir PATH  write transcripts to PATH instead of the default log directory\n");
-    std::print(stream, "  --session-tag TEXT  label recorded runs with TEXT, e.g. tool-schema-v3\n");
-    std::print(stream, "  --                treat all remaining arguments as part of PROMPT\n");
+    std::print(stream, "Usage: kern [--service NAME | --endpoint URL] [--model NAME] [--port N] [--max-turns N] [--log-level LEVEL] [--record MODE] [--keep-awake MODE] [--session-dir PATH] [--session-tag TEXT] [--list-services] [--show-sessions] [--] PROMPT\n");
+    std::print(stream, "  --help, -h         show this help and exit\n");
+    std::print(stream, "  --list-services    list known services and exit\n");
+    std::print(stream, "  --show-sessions    print a table of recorded sessions with their tags, model and completion flag\n");
+    std::print(stream, "  --log-level LEVEL  diagnostics on stderr: off, error, warning (default), info, debug, trace\n");
+    std::print(stream, "  --service NAME     use a service from the built-ins or the services file ({})\n", GetServicesConfigPath().string());
+    std::print(stream, "  --endpoint URL     use an ad-hoc endpoint that needs no API key ('ollama' and 'llama.cpp' are accepted as service names)\n");
+    std::print(stream, "  --model NAME       override the model name reported by the service\n");
+    std::print(stream, "  --port N           override the port of the resolved endpoint\n");
+    std::print(stream, "  --max-turns N      give up after N agent turns (default {})\n", DefaultMaxTurns);
+    std::print(stream, "  --record MODE      session recording: on (default) or off\n");
+    std::print(stream, "  --keep-awake MODE  prevent system suspend while a prompt is interacting with the model: on (default) or off\n");
+    std::print(stream, "  --session-dir PATH write transcripts to PATH instead of the default log directory\n");
+    std::print(stream, "  --session-tag TEXT label recorded runs with TEXT, e.g. tool-schema-v3\n");
+    std::print(stream, "  --                 treat all remaining arguments as part of PROMPT\n");
 }

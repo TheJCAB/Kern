@@ -26,6 +26,32 @@ std::string DescribeCommand(BuildCommand const& command)
 
     return description;
 }
+// The selected command line as a copy-pasteable argv: the executable first, then each argument,
+// with a single pair of quotes added only around what would otherwise not survive as one word.
+// It is never a shell string and never carries the environment.
+std::string FormatCommandLine(BuildCommand const& command)
+{
+    auto quoteIfNeeded = [](std::string const& text) -> std::string
+    {
+        if (text.find_first_of(" \"") == std::string::npos)
+        {
+            return text;
+        }
+
+        return std::string("\"") + text + "\"";
+    };
+
+    std::string line = quoteIfNeeded(command.executable);
+
+    for (std::string const& argument : command.arguments)
+    {
+        line += ' ';
+        line += quoteIfNeeded(argument);
+    }
+
+    return line;
+}
+
 
 // The combined output of several commands is capped at MaxProcessOutputBytes by keeping its
 // first BuildOutputHeadBytes bytes and as many trailing bytes as the remaining budget allows.
@@ -75,6 +101,7 @@ inline json BuildTool(json const& /*arguments*/, ToolsRuntimeContext const& cont
         bool        timedOut      = false;
         int         exitCode      = 0;
         std::size_t failedCommand = 0;
+        std::size_t reportedCommand = 0;
 
         for (std::size_t index = 0; index < commands.size(); ++index)
         {
@@ -89,6 +116,8 @@ inline json BuildTool(json const& /*arguments*/, ToolsRuntimeContext const& cont
                 }
                 output += std::format("=== [{}/{}] {} ===\n", index + 1, commands.size(), DescribeCommand(command));
             }
+
+            reportedCommand = index;
 
             ProcessResult const result = RunProcess(command.executable, command.arguments, command.workingDirectory, command.timeout);
 
@@ -109,16 +138,27 @@ inline json BuildTool(json const& /*arguments*/, ToolsRuntimeContext const& cont
 
         std::string const combinedOutput = TruncateBuildOutput(output, truncated);
 
-        return json{
+        BuildCommand const& reported = commands[reportedCommand];
+
+        json result{
             { "ok"            , succeeded             },
             { "status"        , succeeded ? "succeeded" : (timedOut ? "timed_out" : "failed") },
             { "exitCode"      , exitCode              },
             { "timedOut"      , timedOut              },
             { "truncated"     , truncated             },
             { "commandCount"  , commands.size()       },
+            { "commandIndex"  , reportedCommand + 1   },
+            { "command"       , FormatCommandLine(reported) },
             { "failedCommand" , failedCommand         },
             { "output"        , combinedOutput        },
         };
+
+        if (reported.declaredWorkingDirectory)
+        {
+            result["workingDirectory"] = reported.workingDirectory.string();
+        }
+
+        return result;
     }
     catch (std::exception const& e)
     {
@@ -138,6 +178,7 @@ constexpr ToolDefinition build
                           "The workspace may declare several commands, which run in order and stop at the first failure, and the output of all of them is combined. "
                           "This tool takes no arguments: the commands, their arguments, their working directories and their timeouts are all fixed by the workspace owners and cannot be changed or extended by you. "
                           "Returns the combined command output, the exit code, and whether the build timed out. "
+                          "The result names the command that was actually run, so read 'command' to see exactly what the workspace declared for your platform. "
                           "Call it once after a coherent set of edits, not after every single edit, and never call it again in a loop hoping for a different answer.",
     .callTool           = BuildTool,
 };

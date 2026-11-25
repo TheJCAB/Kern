@@ -1,7 +1,8 @@
 {
     "build": {
         "commands": [
-            { "command": "cmake", "arguments": [ "--preset", "Clang-Kern-Test"  ], "timeoutSeconds": 600 },
+            { "command": "cmake", "arguments": [ "--preset", "MSVC-Kern-Test"   ], "timeoutSeconds": 600, "platforms": [ "Windows" ] },
+            { "command": "cmake", "arguments": [ "--preset", "Clang-Kern-Test"  ], "timeoutSeconds": 600, "platforms": [ "Linux" ] },
             { "command": "cmake", "arguments": [ "--build", "./build/Kern-Test" ], "timeoutSeconds": 600 }
         ]
     }

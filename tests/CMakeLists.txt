@@ -78,6 +78,7 @@ add_executable(build_command_tests
     ../src/BuildCommand.cpp
     ../src/FileUtilities.cpp
     ../src/FileValidation.cpp
+    ../src/RunProcess.cpp
 )
 
 target_include_directories(build_command_tests PRIVATE ../src)

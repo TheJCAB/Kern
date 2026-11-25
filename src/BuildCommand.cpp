@@ -16,9 +16,36 @@
 namespace
 {
 
-constexpr char const* KnownBuildCommandKeys[] = { "command", "arguments", "workingDirectory", "timeoutSeconds" };
+constexpr char const* KnownBuildCommandKeys[] = { "command", "arguments", "workingDirectory", "timeoutSeconds", "platforms" };
 
 constexpr char const* KnownBuildKeys[] = { "command", "arguments", "workingDirectory", "timeoutSeconds", "commands" };
+
+// A command exactly as one entry of the declaration described it, with the platforms it named
+// kept so that the selection can be made before anything runs.
+struct DeclaredBuildCommand
+{
+    BuildCommand             command;
+    std::vector<std::string> platforms; // Empty when the declaration named none, meaning every platform.
+};
+
+// The platform names a declaration may use. They are matched exactly, never case-insensitively.
+bool IsKnownPlatform(std::string_view const name)
+{
+    return name == "Windows" || name == "Linux" || name == "macOS" || name == "all";
+}
+
+bool IsSelectedForPlatform(DeclaredBuildCommand const& declared, std::string_view const hostPlatform)
+{
+    if (declared.platforms.empty())
+    {
+        return true;
+    }
+
+    return std::ranges::any_of(declared.platforms, [hostPlatform](std::string const& platform)
+    {
+        return platform == "all" || platform == hostPlatform;
+    });
+}
 
 std::string ReadRequiredString(json const& object, char const* key)
 {
@@ -37,8 +64,8 @@ std::string ReadRequiredString(json const& object, char const* key)
     return value;
 }
 
-// Parses and validates one fully resolved command out of a build declaration object.
-BuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& workspaceRoot)
+// Parses and validates one declared command out of a build declaration object.
+DeclaredBuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& workspaceRoot)
 {
     for (auto const& [key, value] : object.items())
     {
@@ -52,9 +79,9 @@ BuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& 
         }
     }
 
-    BuildCommand command;
+    DeclaredBuildCommand declared;
 
-    command.executable = ReadRequiredString(object, "command");
+    declared.command.executable = ReadRequiredString(object, "command");
 
     auto const argumentsIt = object.find("arguments");
     if (argumentsIt != object.end() && !argumentsIt->is_null())
@@ -69,7 +96,7 @@ BuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& 
             {
                 throw std::runtime_error("'arguments' must be an array of strings");
             }
-            command.arguments.push_back(element.get<std::string>());
+            declared.command.arguments.push_back(element.get<std::string>());
         }
     }
 
@@ -81,24 +108,26 @@ BuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& 
             throw std::runtime_error("'workingDirectory' must be a string");
         }
 
-        std::filesystem::path const declared = directoryIt->get<std::string>();
-        command.workingDirectory = (declared.is_absolute() ? declared : workspaceRoot / declared).lexically_normal();
-        command.workingDirectory = std::filesystem::absolute(command.workingDirectory).lexically_normal();
+        std::filesystem::path const directory = directoryIt->get<std::string>();
+        declared.command.workingDirectory = (directory.is_absolute() ? directory : workspaceRoot / directory).lexically_normal();
+        declared.command.workingDirectory = std::filesystem::absolute(declared.command.workingDirectory).lexically_normal();
 
-        if (!IsWithin(workspaceRoot, command.workingDirectory))
+        if (!IsWithin(workspaceRoot, declared.command.workingDirectory))
         {
             throw std::runtime_error("'workingDirectory' must be inside the workspace");
         }
 
         std::error_code error;
-        if (!std::filesystem::is_directory(command.workingDirectory, error))
+        if (!std::filesystem::is_directory(declared.command.workingDirectory, error))
         {
-            throw std::runtime_error(std::format("'workingDirectory' is not a directory: {}", command.workingDirectory.string()));
+            throw std::runtime_error(std::format("'workingDirectory' is not a directory: {}", declared.command.workingDirectory.string()));
         }
+
+        declared.command.declaredWorkingDirectory = true;
     }
     else
     {
-        command.workingDirectory = std::filesystem::absolute(workspaceRoot).lexically_normal();
+        declared.command.workingDirectory = std::filesystem::absolute(workspaceRoot).lexically_normal();
     }
 
     auto const timeoutIt = object.find("timeoutSeconds");
@@ -115,14 +144,44 @@ BuildCommand ParseBuildCommand(json const& object, std::filesystem::path const& 
             throw std::runtime_error(std::format("'timeoutSeconds' must be between 1 and {}", MaximumBuildTimeout.count()));
         }
 
-        command.timeout = std::chrono::seconds{ seconds };
+        declared.command.timeout = std::chrono::seconds{ seconds };
     }
 
-    return command;
+    auto const platformsIt = object.find("platforms");
+    if (platformsIt != object.end() && !platformsIt->is_null())
+    {
+        if (!platformsIt->is_array())
+        {
+            throw std::runtime_error(std::format("'platforms' must be an array of platform names, not {}", platformsIt->dump()));
+        }
+
+        if (platformsIt->empty())
+        {
+            throw std::runtime_error("'platforms' must not be empty: omit it to select every platform");
+        }
+
+        for (auto const& element : *platformsIt)
+        {
+            if (!element.is_string())
+            {
+                throw std::runtime_error(std::format("'platforms' must be an array of platform names, not {}", element.dump()));
+            }
+
+            std::string const platform = element.get<std::string>();
+            if (!IsKnownPlatform(platform))
+            {
+                throw std::runtime_error(std::format("Unknown platform '{}' in 'platforms': expected 'Windows', 'Linux', 'macOS' or 'all'", platform));
+            }
+
+            declared.platforms.push_back(platform);
+        }
+    }
+
+    return declared;
 }
 } // namespace
 
-BuildCommands ParseBuildConfiguration(std::string_view const jsonText, std::filesystem::path const& workspaceRoot)
+BuildCommands ParseBuildConfiguration(std::string_view const jsonText, std::filesystem::path const& workspaceRoot, std::string_view const hostPlatform)
 {
     json const root = json::parse(jsonText, nullptr, false);
     if (root.is_discarded() || !root.is_object())
@@ -159,42 +218,64 @@ BuildCommands ParseBuildConfiguration(std::string_view const jsonText, std::file
     }
 
     auto const commandsIt = build.find("commands");
+
+    // Commands are collected exactly as declared, then filtered, so that the declaration order
+    // survives the selection.
+    std::vector<DeclaredBuildCommand> declared;
+
     if (commandsIt == build.end() || commandsIt->is_null())
     {
-        return BuildCommands{ ParseBuildCommand(build, workspaceRoot) };
+        declared.push_back(ParseBuildCommand(build, workspaceRoot));
     }
-
-    if (build.size() != 1)
+    else
     {
-        throw std::runtime_error(build.contains("command")
-                                     ? "'build' must declare either 'command' or 'commands', not both"
-                                     : "no key other than 'commands' may appear in 'build' when 'commands' is used");
-    }
+        if (build.size() != 1)
+        {
+            throw std::runtime_error(build.contains("command")
+                                         ? "'build' must declare either 'command' or 'commands', not both"
+                                         : "no key other than 'commands' may appear in 'build' when 'commands' is used");
+        }
 
-    if (!commandsIt->is_array())
-    {
-        throw std::runtime_error("'commands' must be an array of objects");
-    }
-
-    if (commandsIt->empty())
-    {
-        throw std::runtime_error("'commands' must not be empty");
-    }
-
-    BuildCommands commands;
-    for (auto const& element : *commandsIt)
-    {
-        if (!element.is_object())
+        if (!commandsIt->is_array())
         {
             throw std::runtime_error("'commands' must be an array of objects");
         }
-        commands.push_back(ParseBuildCommand(element, workspaceRoot));
+
+        if (commandsIt->empty())
+        {
+            throw std::runtime_error("'commands' must not be empty");
+        }
+
+        for (auto const& element : *commandsIt)
+        {
+            if (!element.is_object())
+            {
+                throw std::runtime_error("'commands' must be an array of objects");
+            }
+            declared.push_back(ParseBuildCommand(element, workspaceRoot));
+        }
     }
 
-    return commands;
+    BuildCommands selected;
+    for (DeclaredBuildCommand const& command : declared)
+    {
+        if (IsSelectedForPlatform(command, hostPlatform))
+        {
+            selected.push_back(command.command);
+        }
+    }
+
+    // The build tool exists whenever any command is declared, so a selection that leaves nothing
+    // would leave it silently doing nothing: that is an invalid declaration, not an empty build.
+    if (selected.empty())
+    {
+        throw std::runtime_error(std::format("The build declaration selects no command for platform '{}'", hostPlatform));
+    }
+
+    return selected;
 }
 
-std::optional<BuildCommands> LoadBuildConfiguration(std::filesystem::path const& workspaceRoot)
+std::optional<BuildCommands> LoadBuildConfiguration(std::filesystem::path const& workspaceRoot, std::string_view const hostPlatform)
 {
     std::filesystem::path const path = workspaceRoot / BuildConfigurationFileName;
 
@@ -206,7 +287,7 @@ std::optional<BuildCommands> LoadBuildConfiguration(std::filesystem::path const&
 
     try
     {
-        return ParseBuildConfiguration(RawReadTextFile(path), workspaceRoot);
+        return ParseBuildConfiguration(RawReadTextFile(path), workspaceRoot, hostPlatform);
     }
     catch (std::exception const& e)
     {

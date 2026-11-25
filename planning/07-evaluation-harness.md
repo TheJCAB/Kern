@@ -77,8 +77,8 @@ Scoring is a list of named assertions from `checks.json`, evaluated against the 
 | Kind | Asserts | Applies to | Example |
 | --- | --- | --- | --- |
 | `expect_tool` | The tool chosen for the turn. | Prompt and session | `{ "kind": "expect_tool", "tool": "edit_file_lines" }` |
-| `expect_args` | Argument values, by partial JSON matching, so unspecified keys are ignored. | Prompt and session | `{ "kind": "expect_args", "tool": "read_file", "args": { "path": "src/main.cpp" } }` |
-| `expect_sequence` | Order of tool calls, with `allow_extra` tolerating interleaved calls. | Session | `{ "kind": "expect_sequence", "tools": ["read_file", "edit_file_lines", "build"], "allow_extra": true }` |
+| `expect_args` | Argument values, by partial JSON matching, so unspecified keys are ignored. | Prompt and session | `{ "kind": "expect_args", "tool": "read_file_chunk", "args": { "path": "src/main.cpp" } }` |
+| `expect_sequence` | Order of tool calls, with `allow_extra` tolerating interleaved calls. | Session | `{ "kind": "expect_sequence", "tools": ["read_file_chunk", "edit_file_lines", "build"], "allow_extra": true }` |
 | `expect_file_state` | File content, absence, or a line-count bound after the run. | Session | `{ "kind": "expect_file_state", "path": "src/Session.cpp", "lineCountAtMost": 12 }` |
 | `expect_build_ok`, `expect_command_exit` | That the build succeeded, or that a command exited with a given code. | Session | `{ "kind": "expect_build_ok" }` |
 | `expect_answer_contains`, `expect_answer_matches` | Substring or regular expression in the final answer. | Prompt and session | `{ "kind": "expect_answer_matches", "pattern": "src/Session\\.cpp:\\d+" }` |

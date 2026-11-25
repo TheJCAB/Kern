@@ -1,3 +1,5 @@
+> **Superseded.** The shared memory store this programme is built on no longer exists: thoughts are now recorded in place in the conversation by the stateless `note` tool (`src/Tools/note.h`), and retiring a note only records a marker because dropping notes is left to compaction. The compaction parts of this programme remain future work.
+
 # Memory and context programme
 
 Status: **in progress.** This document coordinates the four designs numbered 01 to 04.

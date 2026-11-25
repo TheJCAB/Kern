@@ -3,7 +3,6 @@
 #include "BuildCommand.h"
 #include "FileValidation.h"
 #include "JsonUtilities.h"
-#include "Memory.h"
 
 #include <cstdint>
 #include <functional>
@@ -73,10 +72,6 @@ struct ToolsRuntimeContext
 
     // Bare directory names that the search tools ignore below their root_dir, never at it.
     std::vector<std::string>                ignoredDirectories{};
-
-    // The memory store of the whole session tree. The context is copied by value into every child
-    // session, so the shared_ptr is what keeps one store shared by the session and its subagents.
-    std::shared_ptr<MemoryStore>            memory;
 };
 
 // At runtime, running a tool is done by calling a function with this signature.

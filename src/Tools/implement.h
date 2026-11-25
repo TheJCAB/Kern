@@ -11,7 +11,8 @@
 #include "edit_file_lines.h"
 #include "write_file.h"
 #include "build.h"
-#include "memory.h"
+#include "delete_file.h"
+#include "note.h"
 
 #include <iterator>
 #include <string>
@@ -26,13 +27,11 @@ namespace Tools::implement
 // the orchestrator or to any other subagent.
 constexpr ToolDefinition Tools[] =
 {
-    //read_file,
-    //glob,
-    //grep,
     read_file_chunk,
     edit_file_lines,
     write_file,
-    memory,
+    delete_file,
+    note,
 };
 
 inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId)

@@ -9,7 +9,7 @@
 #include "grep.h"
 #include "read_file_chunk.h"
 #include "build.h"
-#include "memory.h"
+#include "note.h"
 
 #include <iterator>
 #include <string>
@@ -26,8 +26,8 @@ constexpr ToolDefinition Tools[] =
 {
     glob,
     grep,
-    memory,
     read_file_chunk,
+    note,
 };
 
 inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId)

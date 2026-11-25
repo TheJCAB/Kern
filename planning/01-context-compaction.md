@@ -23,7 +23,6 @@ The log is not just large, it is *redundant*:
 | Stale file content | `read_file_chunk` -> `edit_file_lines` -> `read_file_chunk` of the same region: the pre-edit copy is dead weight |
 | Duplicate queries | the same `glob` or `grep` issued again after an edit, or issued twice with identical arguments |
 | Superseded build output | `build` succeeded at turn 4, failed at turn 7, succeeded again at turn 9: turns 4 and 7 are noise |
-| Whole-file vs. chunk overlap | `read_file` of a file whose later `read_file_chunk` covered the only edited region |
 
 Prefix caching argues for keeping the log append-only: a provider that caches the prompt prefix bills
 and processes only the appended suffix per turn, so every *unchanged* leading message is cheap. Compaction
@@ -99,7 +98,7 @@ derivation belongs next to `BuildToolResponseMessage`):
 
 | Tool | `tool` | `subject` | `variant` | Notes |
 | --- | --- | --- | --- | --- |
-| `read_file`, `read_file_chunk` | tool name | workspace-relative normalized path | requested line range, normalized (`"1-200"`) | range is part of the key: a second chunk of the same file does not supersede the first |
+| `read_file_chunk` | tool name | workspace-relative normalized path | requested line range, normalized (`"1-200"`) | range is part of the key: a second chunk of the same file does not supersede the first |
 | `write_file` | `write_file` | normalized path | `""` | whole-file rewrite |
 | `edit_file_lines` | `edit_file_lines` | normalized path | `""` | whole-file supersession, see §5 |
 | `glob` | `glob` | normalized `pattern` | normalized `root_dir` | |
@@ -125,7 +124,7 @@ newest-first so that "keep the newest of a duplicate class" is trivially local.
 | # | Rule | Action | Rationale |
 | --- | --- | --- | --- |
 | R1 | Two messages have equal `ResourceKey::Dump()` | All but the newest become stubs | The newest answer already contains everything the model needs; the older copies are strictly less current |
-| R2 | A `read_file`/`read_file_chunk` of path `P` is followed by a successful `edit_file_lines`/`write_file` of `P` | The read becomes a stub | This is the "multiple versions of the same file" case that dominates long runs |
+| R2 | A `read_file_chunk` of path `P` is followed by a successful `edit_file_lines`/`write_file` of `P` | The read becomes a stub | This is the "multiple versions of the same file" case that dominates long runs |
 | R3 | Repeated identical `glob` / `grep` (equal key) | Keep the last only | Identical result for identical arguments unless the tree changed; if it changed, R3's newest is the right one |
 | R4 | Older `build` results | Keep the last build in full. For an older *failing* build, keep only the first 8 and last 8 lines of its output, marked as truncated | A compiler error that was later fixed is history; a compiler error that is *still* present is the last one and stays intact |
 | R5 | Any unkeyed message (memory/recall tools, free-form assistant text) | Never stubbed by supersession | No safe identity, and these are exactly the messages that carry durable decisions |

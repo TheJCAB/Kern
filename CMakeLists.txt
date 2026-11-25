@@ -38,7 +38,6 @@ add_executable(kern
     src/FileUtilities.cpp       src/FileUtilities.h
     src/FileValidation.cpp      src/FileValidation.h
     src/Logging.cpp             src/Logging.h
-    src/Memory.cpp              src/Memory.h
     src/NetworkUtilities.cpp    src/NetworkUtilities.h
     src/PromptCommand.cpp       src/PromptCommand.h
     src/RunProcess.cpp          src/RunProcess.h
@@ -62,12 +61,12 @@ add_executable(kern
     src/TurnRecord.cpp          src/TurnRecord.h
 
     src/Tools/build.h
+    src/Tools/delete_file.h
     src/Tools/edit_file_lines.h
     src/Tools/glob.h
     src/Tools/grep.h
     src/Tools/implement.h
-    src/Tools/memory.h
-    src/Tools/read_file.h
+    src/Tools/note.h
     src/Tools/read_file_chunk.h
     src/Tools/research.h
     src/Tools/write_file.h

@@ -1,3 +1,5 @@
+> **Rejected.** A note store shared by the whole session tree was implemented and then removed. Each session now has its own history and its own `note` tool, and nothing about a note crosses to a subagent: anything a subagent needs must be in the prompt the parent writes for it. Anything the messages in this document say about a shared store is a record of the design that was rejected, kept for reference only.
+
 # Shared note store design
 
 Status: proposal, nothing implemented.

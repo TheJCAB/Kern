@@ -1,3 +1,5 @@
+> **Superseded.** The design below (`src/Memory.h`, `src/Memory.cpp`, `src/Tools/memory.h`, the per-turn digest and the store shared by the whole session tree) has been removed. It is replaced by the stateless in-place `note` tool in `src/Tools/note.h`: a note lands in the turn that made it and is replayed in order like any other message, nothing is collected or re-appended, `obsolete` only records that a thought no longer applies, and dropping notes is left to compaction. Notes are per session and are never shared with subagents.
+
 # Memory tool design
 
 Status: in progress.

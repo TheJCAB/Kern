@@ -15,8 +15,9 @@
 #include "ToolUtilities.h"
 #include "TurnLimitRecovery.h"
 
+#include "Tools/delete_file.h"
 #include "Tools/implement.h"
-#include "Tools/memory.h"
+#include "Tools/note.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/research.h"
 #include <algorithm>
@@ -53,7 +54,8 @@ constexpr ToolDefinition MainTools[] =
     Tools::research::Definition,
     Tools::implement::Definition,
     read_file_chunk,
-    memory,
+    note,
+    delete_file,
 };
 
 // Everything a session needs that comes from the command line and the workspace,
@@ -159,10 +161,6 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
     // git, so the guarded file system must refuse every write below it.
     fs.AddProtectedPath(std::filesystem::current_path() / VersionControlDirectoryName);
 
-    // One store for the whole session tree: `ToolsRuntimeContext` is copied by value into every child
-    // session, so the shared_ptr is what makes a subagent read and write the entries of its parent. The
-    // store is volatile by design: nothing is written to disk, so a new process starts with an empty one.
-    std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
     return ToolsRuntimeContext{
         .createNewSession = [settings = std::move(settings)](
             ToolsRuntimeContext const&      context,
@@ -193,7 +191,6 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
         // allowed: ".git" is protected by the guarded file system, and "build" is not protected at
         // all.
         .ignoredDirectories = { ".git", "build" },
-        .memory = std::move(memoryStore),
     };
 }
 

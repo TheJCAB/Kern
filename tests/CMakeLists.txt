@@ -177,12 +177,11 @@ target_link_libraries(turn_limit_recovery_tests PRIVATE TestUtilities nlohmann_j
 
 add_test(NAME turn_limit_recovery_tests COMMAND turn_limit_recovery_tests)
 
-add_executable(memory_tests
-    MemoryTests.cpp
-    ../src/Memory.cpp
+add_executable(note_tool_tests
+    NoteToolTests.cpp
 )
 
-target_include_directories(memory_tests PRIVATE ../src)
-target_link_libraries(memory_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+target_include_directories(note_tool_tests PRIVATE ../src)
+target_link_libraries(note_tool_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
-add_test(NAME memory_tests COMMAND memory_tests)
+add_test(NAME note_tool_tests COMMAND note_tool_tests)

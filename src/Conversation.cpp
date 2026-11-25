@@ -11,8 +11,33 @@ ConversationMessage MakeToolResultMessage(std::string toolCallId, std::string_vi
     };
 }
 
-json BuildChatPayload(std::vector<ConversationMessage> const& history,
-                      std::vector<ConversationMessage> const& transientMessages,
+ConversationMessage MakeAssistantToolCallsMessage(std::string_view content, std::span<ToolCall const> toolCalls)
+{
+    json::array_t toolCallsJson{};
+    toolCallsJson.reserve(toolCalls.size());
+
+    // The arguments go out as JSON text, the shape an OpenAI-style endpoint expects, not as an object.
+    for (auto const& toolCall : toolCalls)
+    {
+        toolCallsJson.push_back(json{
+            { "id"      , toolCall.id   },
+            { "type"    , "function"    },
+            { "function", json{
+                { "name"     , toolCall.name },
+                { "arguments", toolCall.arguments.is_discarded() ? json::object().dump() : toolCall.arguments.dump() },
+            } },
+        });
+    }
+
+    return ConversationMessage{
+        .role      = "assistant",
+        .content   = std::string(content),
+        .toolCalls = std::move(toolCallsJson),
+    };
+}
+
+json BuildChatPayload(std::span<ConversationMessage const> const history,
+                      std::span<ConversationMessage const> const transientMessages,
                       ChatPayloadOptions const& options)
 {
     json::array_t messages{};

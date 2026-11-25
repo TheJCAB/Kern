@@ -206,12 +206,12 @@ struct Session::Pimpl
                         std::println("tool> {} -> {}\n", OneLine(modelResponse.content, 20), OneLine(toolResult, 20));
 
                         m_conversationHistory.push_back({
-                            .role    = "user",
-                            .content = toolResult,
-                        });
-                        m_conversationHistory.push_back({
                             .role    = "assistant",
                             .content = std::move(modelResponse.content),
+                        });
+                        m_conversationHistory.push_back({
+                            .role    = "user",
+                            .content = toolResult,
                         });
                         tokenLimitRecovery.OnProductiveTurn();
                         errorRecovery.OnProductiveTurn();
@@ -298,6 +298,9 @@ struct Session::Pimpl
                         }
                     }
 
+                    // The assistant turn that asked for these calls belongs in the history too: without it the tool results
+                    // answer calls the model cannot see, and an OpenAI-style endpoint rejects such orphan tool messages.
+                    m_conversationHistory.push_back(MakeAssistantToolCallsMessage(modelResponse.content, modelResponse.toolCalls));
                     for (auto const& toolCall : modelResponse.toolCalls)
                     {
                         std::println("\ntool call [{}]> {}({})", toolCall.id, toolCall.name, OneLine(toolCall.arguments.dump(), 60));

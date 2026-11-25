@@ -6,7 +6,7 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
+#include <span>
 
 // One entry of the conversation as the model sees it: a role, its text, and either the id of the tool call this
 // message answers or the tool calls this message requests.
@@ -21,6 +21,9 @@ struct ConversationMessage
 // The message that carries one tool result back to the model, tied to the call by its id.
 ConversationMessage MakeToolResultMessage(std::string toolCallId, std::string_view result);
 
+// The assistant turn that requests tool calls, which must precede the results in the conversation.
+ConversationMessage MakeAssistantToolCallsMessage(std::string_view content, std::span<ToolCall const> toolCalls);
+
 // What a request needs besides the conversation: the model, its tool schema, the output cap and whether the
 // response is streamed.
 struct ChatPayloadOptions
@@ -32,6 +35,6 @@ struct ChatPayloadOptions
 
 // Builds the request body: `history` followed by `transientMessages`, which are shown to the model for this
 // request only and never become part of the conversation.
-json BuildChatPayload(std::vector<ConversationMessage> const& history,
-                      std::vector<ConversationMessage> const& transientMessages,
+json BuildChatPayload(std::span<ConversationMessage const> history,
+                      std::span<ConversationMessage const> transientMessages,
                       ChatPayloadOptions const& options);

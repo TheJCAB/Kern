@@ -17,7 +17,7 @@ A subagent never dies silently: whatever went wrong, its `summary` says what it 
 Never paste file contents or long diffs into a delegation prompt: point at exact paths and exact intended changes instead.
 So every delegation must be self-contained, single-purpose and explicit about exact paths and exact intended changes.
 File-mutating delegations must be serialized: never issue two `implement` calls in the same turn, because their writes race over the same files. Only `read_file_chunk` and `research` may be called in parallel.
-Split multi-item batches into separate calls of at most 3 items each: a subagent has a hard budget of 50 turns and will stop mid-batch with the work only partially applied, after one extra turn spent reporting where it stopped.
+Split multi-item batches into separate calls of at most 3 items each: a subagent has a hard budget of turns and will stop mid-batch with the work only partially applied, after one extra turn spent reporting where it stopped.
 Never delegate work you can do yourself in fewer turns, and never ask a subagent to echo or repeat file contents back to you.
 
 `build/` holds generated output and must not be treated as a source of truth, globbed for source files or written to. Files the user explicitly names under `build/` (for example a review document) are fine to read; do not create or modify files there otherwise.

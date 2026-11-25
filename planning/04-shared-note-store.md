@@ -210,7 +210,7 @@ Why this beats the current channel, one `summary` string per child:
   dies with the child session; with notes the child deposits the argument and the parent reads one key — or
   never.
 - The child gains too: it can move its own bulky intermediates out of context mid-run instead of carrying them
-  for the rest of its 50-turn budget (`SubagentMaxTurns`, `src/ToolUtilities.h:46`).
+  for the rest of its 10-turn budget (`SubagentMaxTurns`, `src/ToolUtilities.h:46`).
 - The parent pays index lines, not payloads.
 
 Worked example:

@@ -6,6 +6,7 @@
 #include "JsonUtilities.h"
 #include "LogFile.h"
 #include "Logging.h"
+#include "Memory.h"
 #include "ModelResponse.h"
 #include "StringUtilities.h"
 #include "TokenLimitRecovery.h"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <optional>
 #include <print>
 #include <span>
@@ -81,6 +83,14 @@ struct Session::Pimpl
                                 MakeRecorderDirectory(config),
                                 config.record                        }
     {
+        // Every session owns one memory store. A caller that hands over a context without one (a test, a
+        // session built elsewhere) still gets a working `memory` tool and a digest; a caller that shares a
+        // store - the subagent factory in main.cpp copies the context - keeps the store of the whole tree.
+        if (m_toolContext.memory == nullptr)
+        {
+            m_toolContext.memory = std::make_shared<MemoryStore>();
+        }
+
         std::string systemPrompt = std::move(config.systemPrompt);
         if (m_maxTokens != 0)
         {
@@ -140,6 +150,13 @@ struct Session::Pimpl
                 transientMessages.insert(transientMessages.end(), turnLimitRecovery.Messages().begin(), turnLimitRecovery.Messages().end());
                 transientMessages.insert(transientMessages.end(), errorRecovery.Messages().begin(), errorRecovery.Messages().end());
                 transientMessages.insert(transientMessages.end(), tokenLimitRecovery.Messages().begin(), tokenLimitRecovery.Messages().end());
+                // The memory digest is the last message of the request and is never stored in the history: it is the
+                // only text that varies from turn to turn, so a change to the store invalidates the provider's
+                // prefix cache from this point only. An empty store adds nothing at all.
+                if (m_toolContext.memory && !m_toolContext.memory->Empty())
+                {
+                    transientMessages.push_back({ .role = "user", .content = m_toolContext.memory->Digest() });
+                }
                 json const payload = BuildChatPayload(m_conversationHistory, transientMessages, { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens });
                 Log(LogLevel::debug, "m_currentTurn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     m_currentTurn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_currentTurn);

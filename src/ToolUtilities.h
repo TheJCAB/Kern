@@ -3,9 +3,11 @@
 #include "BuildCommand.h"
 #include "FileValidation.h"
 #include "JsonUtilities.h"
+#include "Memory.h"
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -43,7 +45,7 @@ struct StringArrayToolParameter : ToolParameterBase
 using ToolParameter = std::variant<StringToolParameter, IntegerToolParameter, BoolToolParameter, StringArrayToolParameter>;
 
 // The turn budget handed to every subagent session started by `research` or `implement`.
-constexpr unsigned SubagentMaxTurns = 50;
+constexpr unsigned SubagentMaxTurns = 10;
 
 class Session;
 struct ToolDefinition;
@@ -56,7 +58,9 @@ using CreateNewSessionFunction = Session(
     std::string_view                parentSessionId,
     std::string_view                role,
     std::string_view                systemPrompt,
-    std::span<ToolDefinition const> );
+    std::span<ToolDefinition const> ,
+    unsigned                        maxTurns
+);
 
 struct ToolsRuntimeContext
 {
@@ -69,6 +73,10 @@ struct ToolsRuntimeContext
 
     // Bare directory names that the search tools ignore below their root_dir, never at it.
     std::vector<std::string>                ignoredDirectories{};
+
+    // The memory store of the whole session tree. The context is copied by value into every child
+    // session, so the shared_ptr is what keeps one store shared by the session and its subagents.
+    std::shared_ptr<MemoryStore>            memory;
 };
 
 // At runtime, running a tool is done by calling a function with this signature.

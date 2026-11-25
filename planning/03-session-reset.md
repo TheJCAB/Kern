@@ -128,7 +128,7 @@ Bad: a status report that presumes the reader saw the work — exactly what a re
 
 ## Interaction with subagents
 Children created through `CreateNewSessionFunction` (`src/ToolUtilities.h:54`) start with no history, so
-no reset is needed to isolate them; the feature pays off in long-running orchestrators, and inside 50-turn
+no reset is needed to isolate them; the feature pays off in long-running orchestrators, and inside limited-turn
 `SubagentMaxTurns` (`src/ToolUtilities.h:46`) sessions that burn turns exploring before a mechanical edit
 phase. The pending flag must live **per session**, in `Session::Pimpl` (`src/Session.cpp:54`) — never
 in `ToolsRuntimeContext`, copied by value into every child (`src/ToolUtilities.h:56-67`, built at

@@ -15,6 +15,7 @@
 #include "TurnLimitRecovery.h"
 
 #include "Tools/implement.h"
+#include "Tools/memory.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/research.h"
 #include <algorithm>
@@ -25,6 +26,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <print>
 #include <span>
@@ -50,6 +52,7 @@ constexpr ToolDefinition MainTools[] =
     Tools::research::Definition,
     Tools::implement::Definition,
     read_file_chunk,
+    memory,
 };
 
 // Everything a session needs that comes from the command line and the workspace,
@@ -155,13 +158,19 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
     // git, so the guarded file system must refuse every write below it.
     fs.AddProtectedPath(std::filesystem::current_path() / VersionControlDirectoryName);
 
+    // One store for the whole session tree: `ToolsRuntimeContext` is copied by value into every child
+    // session, so the shared_ptr is what makes a subagent read and write the entries of its parent. The
+    // store is volatile by design: nothing is written to disk, so a new process starts with an empty one.
+    std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
     return ToolsRuntimeContext{
         .createNewSession = [settings = std::move(settings)](
             ToolsRuntimeContext const&      context,
             std::string_view                parentSessionId,
             std::string_view                role,
             std::string_view                systemPrompt,
-            std::span<ToolDefinition const> tools)
+            std::span<ToolDefinition const> tools,
+            unsigned                        maxTurns
+        )
         {
             return Session{Session::Config{
                 .endpointDescriptor = settings.endpoint,
@@ -170,7 +179,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
                 .modelName          = settings.model,
                 .tools              = tools,
                 .maxTokens          = settings.maxTokens,
-                .maxTurns           = SubagentMaxTurns,
+                .maxTurns           = maxTurns,
                 .identity           = SessionIdentity{ .parentId{ parentSessionId }, .role{ role }, .tag = settings.sessionTag },
                 .sessionDirectory   = settings.sessionDirectory,
                 .record             = settings.record,
@@ -183,6 +192,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
         // allowed: ".git" is protected by the guarded file system, and "build" is not protected at
         // all.
         .ignoredDirectories = { ".git", "build" },
+        .memory = std::move(memoryStore),
     };
 }
 

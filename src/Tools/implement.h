@@ -11,6 +11,7 @@
 #include "edit_file_lines.h"
 #include "write_file.h"
 #include "build.h"
+#include "memory.h"
 
 #include <iterator>
 #include <string>
@@ -31,6 +32,7 @@ constexpr ToolDefinition Tools[] =
     read_file_chunk,
     edit_file_lines,
     write_file,
+    memory,
 };
 
 inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId)
@@ -58,7 +60,10 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
             tools.push_back(build);
         }
 
-        Session session = context.createNewSession(context, parentSessionId, "implement", RawReadTextFile(GetRuntimeDataDirectory() / "ImplementSystemPrompt.txt"), tools);
+        auto systemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "ImplementSystemPrompt.txt");
+        systemPrompt += std::format("\nYou have a total of {} turns to complete your task.", SubagentMaxTurns);
+
+        Session session = context.createNewSession(context, parentSessionId, "implement", systemPrompt, tools, SubagentMaxTurns);
 
         Session::PromptResult const result = session.Prompt(prompt);
 

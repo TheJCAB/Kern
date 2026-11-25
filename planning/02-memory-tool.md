@@ -1,349 +1,86 @@
 # Memory tool design
 
-Status: proposal, nothing implemented.
+Status: in progress.
 
 Related designs: [01 Context compaction](01-context-compaction.md) (mechanical elision of superseded tool results, which must pin the digest), [03 Session reset](03-session-reset.md) (deliberate amnesia, the thing memory must survive), [04 Shared note store](04-shared-note-store.md) (out-of-context bodies, the complement to a resident digest), and [05 Memory and context programme](05-memory-and-context-programme.md) (the programme this design is part of).
 
 ## Problem
 
-Reasoning is captured but discarded: only `content` reaches `Session::Pimpl::m_conversationHistory`
-(`src/Session.cpp:943`), and that history is never persisted across sessions. So a decision or invariant the
-model derived — "the digest must stay prefix-cache stable", "`ToolDefinition::callTool` is a reference, so
-handlers must be lvalues" — lives only in the message that produced it. Once the motivating tool result
-scrolls out of the window, or the history is compacted, the derivation is gone: the model re-derives it, or
-contradicts it. Subagents make this worse, because `research`/`implement` start a fresh `Session` that does
-not inherit the parent's history, so nothing the parent learned crosses the boundary.
+Reasoning is captured but discarded: only the final `content` reaches the conversation history, and that history is never persisted, so a derivation dies with the message that produced it. A decision or an invariant the model reached ("the digest must stay prefix-cache stable", "`ToolDefinition::callTool` is a reference, so a handler must be an lvalue") is gone once the motivating tool result leaves the window or is elided, and the model re-derives it or contradicts it. Subagents make it worse: `research` and `implement` start a fresh `Session` with their own system prompt and tool list, so nothing the parent learned crosses the boundary unless something is put there deliberately.
 
-There is no self-authored writable store in the tool set today. Every tool either reads the workspace or
-writes files the user owns; none holds "what I decided" on the model's own behalf.
+The store, the `memory` tool, the resident digest and the sharing of the store down the session tree all exist. What is still missing is what makes the habit worth the budget it spends: a way to make room when the store is full, a way for what was remembered to outlive the process that remembered it, and a policy for what a child is allowed to write into its parent's store.
 
-## Design summary
+## How the store works today
 
-One new tool, `memory`, with four operations — `add`, `replace`, `remove`, `list`. Each entry is a short
-titled fact, decision, invariant or task with a stable id (`d-digest-injection`, `i-no-locking`). Entries
-live in a store shared by the whole session tree and are injected into every prompt as a compact digest
-(§6), so the model curates its durable context in ~2k characters instead of carrying it in the transcript.
-
-Two features, deliberately not overlapping:
-
-| Memory (this document) | Out-of-context note store ([04 Shared note store](04-shared-note-store.md)) |
-| --- | --- |
-| Always in context as a digest, every turn, every session in the tree | Out of context; addressed by key, read on demand |
-| Small, curated, hard char budget; the model deletes to make room | Large, unbounded bulk payloads; the point is not to spend context |
-| Content: durable decisions, invariants, open tasks | Content: arbitrary blobs — file dumps, notes, intermediate artifacts |
-| Written once, read many times without a tool call | Every read is an explicit tool call |
-| Purpose: stop re-deriving what was already settled | Purpose: move bytes out of the window |
-
-Rule of thumb: if the model would be wrong without it, memory; if it merely might want it again, note store.
-
-## Data model
-
-Proposed: new `src/Memory.{h,cpp}` declaring `class MemoryStore`, held as `std::shared_ptr<MemoryStore>` in
-`ToolsRuntimeContext` (`src/ToolUtilities.h:56-67`), constructed beside the other members in `main.cpp`
-(`src/main.cpp:153-175`). A `shared_ptr` because the context is copied **by value** into child sessions —
-`CreateNewSessionFunction` takes `ToolsRuntimeContext const&` and `Session::Config.toolContext` copies it —
-so a value member would give every subagent a private empty store, and a reference would dangle. The whole
-session tree must share one store; the shared pointer makes that a construction-time guarantee.
-
-```cpp
-struct MemoryEntry
-{
-    std::string id;
-    enum class Kind { fact, decision, invariant, task } kind;
-    std::string text;
-    unsigned    createdAtTurn;
-    std::string createdBy;   // "root" or the subagent tool name that added it
-    bool        pinned;
-};
-
-class MemoryStore
-{
-public:
-    json Add(std::string_view id, MemoryEntry::Kind kind, std::string const& text,
-             unsigned turn, std::string const& createdBy);   // errors: full / too_long / invalid_argument
-    json Replace(std::string_view id, std::string const* text,
-                 std::optional<MemoryEntry::Kind> kind);     // error: not_found
-    json Remove(std::string_view id);                        // error: not_found
-    json List(std::string_view prefix = {}) const;           // full entries, not the digest
-    std::string Digest(std::size_t maxChars) const;          // §6, sorted by id
-
-private:
-    std::map<std::string, MemoryEntry> m_entries;  // ordered => deterministic, id-sorted digest
-    std::size_t m_maxEntries{ 64 };
-};
-```
-
-Concurrency: single-threaded per session today — `CallTool` (`src/ToolUtilities.cpp:233-251`) runs
-synchronously inside `Session::Pimpl::Prompt` (`src/Session.cpp:912`) — so no locking is proposed. If
-tool calls ever parallelize, or one store is shared by concurrent sessions, mutations must take a
-`std::mutex`, `Digest()` must copy under it, and `Add`'s capacity check plus insert must be one critical
-section so `m_maxEntries` cannot be exceeded.
-
-## Tool surface
-
-| argument | required | type | notes |
-| --- | --- | --- | --- |
-| `operation` | yes | string | `add` \| `replace` \| `remove` \| `list` |
-| `id` | no | string | required for `add`/`replace`/`remove`; optional prefix filter for `list` |
-| `text` | no | string | required for `add`; required for `replace` unless `kind` is given |
-| `kind` | no | string | `fact` (default) \| `decision` \| `invariant` \| `task` |
-| `maxChars` | no | integer | digest budget for `list`, default 2000 |
-
-Skeleton in the existing header-only style; the handler is an lvalue because
-`ToolDefinition::callTool` is a reference (`src/ToolUtilities.h:89-96`):
-
-```cpp
-// src/Tools/memory.h
-namespace Tools::memory
-{
-inline json Handler(json const& arguments, ToolsRuntimeContext const& context)
-{
-    std::string const operation = arguments.value("operation", "");
-    if (!context.memory) { return json{ {"error", "no memory store"}, {"errorCode", "unavailable"} }; }
-    if (operation == "add")     { return context.memory->Add(...); }
-    if (operation == "replace") { return context.memory->Replace(...); }
-    if (operation == "remove")  { return context.memory->Remove(...); }
-    if (operation == "list")    { return context.memory->List(arguments.value("id", "")); }
-    throw ToolArgumentError{ std::format("unknown operation '{}'", operation) };
-}
-
-constexpr ToolParameter RequiredParameters[] = {
-    StringToolParameter{ { "operation", "One of add, replace, remove, list." } },
-};
-constexpr ToolParameter OptionalParameters[] = {
-    StringToolParameter { { "id",   "Stable short id, e.g. 'd-digest-injection'." } },
-    StringToolParameter { { "text", "The fact, decision, invariant or task, in one or two sentences." } },
-    StringToolParameter { { "kind", "fact (default), decision, invariant or task." } },
-    IntegerToolParameter{ { "maxChars", "Digest character budget for list; default 2000." },
-                          .minimum = 200, .maximum = 20000 },
-};
-constexpr ToolDefinition Definition{
-    .name               = "memory",
-    .description        = "Keep a small, durable store of decisions, invariants, facts and open tasks. "
-                          "Entries are shown to you automatically in every prompt; add only what you would "
-                          "otherwise re-derive.",
-    .requiredParameters = RequiredParameters,
-    .optionalParameters = OptionalParameters,
-    .callTool           = Handler,
-};
-}
-```
-
-Examples — `invalid_argument` comes from throwing `ToolArgumentError`, the rest are returned as
-`{"error":...,"errorCode":...}` objects, matching the existing error convention:
-
-```json
-{"operation":"add","id":"d-digest-injection","kind":"decision","text":"Digest is injected as a transient trailing message, never written to history."}
-{"ok":true,"id":"d-digest-injection","entries":3,"chars_used":512}
-{"operation":"replace","id":"i-no-locking","text":"MemoryStore is unguarded; Prompt runs tool calls synchronously."}
-{"ok":true,"id":"i-no-locking","entries":3}
-{"operation":"add","kind":"todo","text":"..."}
-{"error":"unknown kind 'todo'; expected fact, decision, invariant or task","errorCode":"invalid_argument"}
-{"operation":"remove","id":"d-missing"}
-{"error":"no memory entry 'd-missing'","errorCode":"not_found"}
-{"operation":"add","id":"f-huge","text":"<6000 chars>"}
-{"error":"entry exceeds 500 characters","errorCode":"too_long"}
-{"operation":"add","id":"f-61","text":"..."}
-{"error":"store is full (64 entries); remove one first","errorCode":"full"}
-```
-
-## Digest injection
-
-| option | shape | verdict |
+| part | where | what it is |
 | --- | --- | --- |
-| (a) extra `role="system"` message after the main system prompt | static history position, must be kept in sync with the store | Rejected: two system messages invite provider-specific merging, and any store change invalidates the cache from that point on. |
-| **Recommended** — the precedent already exists for the "hurry up" path (`src/Session.cpp:831-883`). |
-| (c) rewriting the system prompt | text changes with the store | Rejected: the system prompt is the cache prefix; editing it on every `add` invalidates the entire cached prefix. |
+| entries | `src/Memory.h:17-23` | `id`, `kind` (`fact`, `decision`, `invariant`, `task`), `text`, `createdBy`. Nothing else: there is no creation turn and no pin. |
+| store | `src/Memory.h:28-71` | one ordered `std::map<std::string, MemoryEntry>` (`src/Memory.h:66`) with `Add`, `Replace`, `Remove`, `List`, `Digest`, `Empty`. |
+| caps | `src/Memory.h:31-36` | 40 entries, 500 characters each, 8000 in total, digest 2000 by default and accepted between 200 and 20000. A call that would exceed a cap is refused rather than stored. |
+| tool | `src/Tools/memory.h:139-154` | one `memory` tool, `operation` = `add`, `replace`, `remove`, `list`; `id`, `text`, `kind`, `maxChars` optional. Registered for the orchestrator (`src/main.cpp:50-56`) and for both child sessions (`src/Tools/research.h:25-31`, `src/Tools/implement.h:27-36`). |
+| digest | `src/Memory.cpp:248-269` | one line per entry, `- [kind] id: text`, in id order, inside a fixed header, with a `[+N more; call memory(list)]` footer only when entries were clipped. |
+| sharing | `src/main.cpp:161-164`, `src/main.cpp:193` | one `std::shared_ptr<MemoryStore>` created beside each `ToolsRuntimeContext`. The context is copied by value into every child (`src/main.cpp:175`), so the pointer copies with it and one store serves the whole tree. A session handed a context without a store makes one for itself (`src/Session.cpp:86-92`). |
+| digest placement | `src/Session.cpp:153-159` | the digest is the last transient message of the request and is never pushed into the history, so the cached prefix is untouched while the store does not change, and a change costs only the tail. Transient messages are appended after the history (`src/Conversation.cpp:44-47`). An empty store adds no message at all. |
+| prompt text | `data/CommonSystemPrompt.txt:15` | the paragraph that teaches every agent, including children, what belongs in memory and what does not. |
 
-Option (b) keeps the prefix stable: history and system prompt are untouched, and the only variable text is
-the final message. While the store does not change, that trailing message is byte-identical from turn to
-turn, so the provider's prefix cache still hits on everything before it; when the store does change, only
-the tail is re-sent. Implementation is one appended `ConversationMessage{ .role = "user", .content = ...
-digest ... }` passed to `BuildPayload` and never pushed into `m_conversationHistory`.
+Three invariants, stated because everything below has to keep holding:
 
-Digest format — one line per entry, sorted by id, inside a short fixed wrapper:
+- `Digest` is a pure function of the store: entries come out in id order with no timestamps, so the same store gives byte-identical text on every turn and the provider's prefix cache keeps hitting on everything before the digest. A creation timestamp must therefore never enter the digest; it may only enter `list`.
+- There is no locking. `CallTool` runs synchronously inside the turn loop, so one session never mutates the store while reading it. Concurrent tool calls, or one store shared by concurrent sessions, would need a `std::mutex` with the capacity check and the insert in one critical section.
+- The whole store is a process-lifetime object and nothing writes it out. A new process starts with an empty store, and a session that starts afresh has nothing to remember.
 
-```
-[Memory — entries you asked to keep. Update with the memory tool.]
-- [decision] d-digest-injection: Digest is injected as a transient trailing message.
-- [invariant] i-no-locking: MemoryStore has no locking; tool calls are synchronous.
-- [task] t-finish-doc: Write sections 7+ of the memory review.
-[+3 more; call memory(list)]
-```
+## Subagent write-back policy
 
-Exactly one line per entry as `- [kind] id: text`, ordered by id (not by insertion time), so the digest is a
-pure function of the store. Lines are emitted until the character budget is exhausted — default 2000 chars,
-overridable per `list` call via `maxChars` — with `pinned` entries first so they always survive the budget.
-The `+N more; call memory(list)` footer appears only when entries were dropped, and `list` returns full
-texts, so nothing is unreachable.
-
-Refresh timing: the digest is recomputed once per turn, when the next request is built. A mutating tool call
-already returns its own confirmation in the tool result, so no mid-turn notification is needed: the tool
-result stays the only in-turn feedback and the change is not duplicated in context.
-
-## Inheritance across subagents
-
-`research` and `implement` each create a **fresh** `Session` with their own system prompt from `data/` and a
-restricted tool list; the child never sees the parent's `m_conversationHistory` and its only input is the
-`prompt` argument (`src/Tools/research.h:28`, `src/Tools/implement.h:35`). So nothing the parent knows crosses
-the boundary unless it is put there explicitly. Three proposed ways to do that:
+A child session gets its parent's store for free and its writes are visible to the parent immediately, because the store is shared through a `std::shared_ptr` (`src/main.cpp:161-164`). What a child is allowed to keep in the parent's 8000-character budget is undecided, and so is what `createdBy` should be: it is filled with the parent session id today (`src/Tools/memory.h:46`) and reaches the model through `list` but never through the digest.
 
 | option | mechanism | verdict |
 | --- | --- | --- |
-| (i) digest prefixed into the child's system prompt | `createNewSession` concatenates parent digest + `data/ResearchSystemPrompt.txt` when building `Session::Config` | Workable, but it makes the child's cache prefix depend on the parent's store, and it conflates two different prompts. |
-| (ii) digest embedded in the child's first user message | the parent's `prompt` argument is rewritten to `"<digest>\n\n<task>"` before the session starts | Simple, no engine change, but the child cannot tell instructions from memory, and the parent must remember to do it. |
-| (iii) hand the child the parent's store directly | the same `std::shared_ptr<MemoryStore>` already in `ToolsRuntimeContext` | **Recommended** — the context is *copied* into the child, so the `shared_ptr` copies with it and the store is shared for free; nothing to thread, nothing to escape. |
+| propagate everything | nothing to do: this is what the code does today | Right for `decision` and `invariant", which are exactly what a parent must not contradict, but a chatty `implement` can fill the parent's budget with entries the parent never asked for and cannot see being added. |
+| propagate by kind | `fact` and `task` stay local to the writing agent, `decision` and `invariant` reach the whole tree | Needs a scope on the entry and a filter in `Digest` and `List`, and no new argument: propagation becomes a property of the content rather than of the caller. |
+| propagate on request | a new `propagate: true` argument, default off for `implement` | Cheapest to implement, but it leaves the most valuable content - the invariants a subagent discovered - out of the parent's store unless the child remembers to ask. |
 
-Option (iii) is not just simplest, it is already implied by §3's data model: `toolContext` is copied by value
-into the child (`src/ToolUtilities.h:54`, `src/main.cpp:153-175`) and the store is a `shared_ptr`, so a child
-created through the existing `CreateNewSessionFunction` reads and writes the *same* entries with zero new
-plumbing, and its digest appears through the normal §6 path. That makes (i) and (ii) unnecessary; keep the
-digest out of `prompt` so the parent's text stays the only task input.
+Whichever is chosen, a subagent's incidental findings should not silently compete with the orchestrator's own content, and the parent must be able to `remove` anything a child added by id. The choice should be made against a recorded transcript (plan 07) rather than by taste, because the question is how much context a subagent is worth.
 
-Proposed write-back policy, since (iii) means a child's writes are visible to its parent immediately:
+## Eviction
 
-- Entries added by a child default to `createdBy = "<tool name>"` (`research`, `implement`) and to
-  session-tree scope, i.e. they are visible to the whole tree.
-- `kind = invariant` and `kind = decision` propagate up: they are exactly the "settled" content a parent must
-  not contradict.
-- `kind = fact` stays local to the writing agent unless a proposed new argument `propagate: true` is passed;
-  a child's incidental discoveries should not consume the orchestrator's budget.
-- `kind = task` never propagates: a child's todo list is not the parent's.
+The caps in `src/Memory.h:31-36` are enforced by refusal: `add` answers `full` and the model has to `remove` or shorten something by hand. That is deliberate while there is nothing to order by. Pending:
 
-Risk: a child that spams `add` pollutes the orchestrator's context with entries it never asked for and cannot
-see being added, which then compete with the parent's own content under the §8 cap. Mitigations, all
-proposed: `createdBy` surfaces in the parent's digest as a count, the parent may `remove` anything by id, and
-`implement` (the verbose one) is the natural candidate for `propagate: false` by default if it gets noisy.
-
-## Budget and eviction
-
-Memory competes with tool results for the same context window, so it must have a hard ceiling rather than
-"the model will be reasonable". Proposed caps:
-
-| cap | value | rationale |
-| --- | --- | --- |
-| total characters across all entries | 8000 | ~2k tokens; large enough for a real design log, small enough that it cannot dominate a turn |
-| entries | 40 | bounds the digest line count independently of text length |
-
-`add` fails with `errorCode: "full"` when either cap would be exceeded, and names the cap that was hit; the
-model is expected to `remove` or shorten something. Eviction — used only by a proposed `prune` sweep before
-injection, never by `add` — removes in this order:
-
-1. the oldest unpinned `fact`, by `createdAtTurn`;
-2. then the oldest unpinned `task`;
-3. then nothing: `invariant`, `pinned`, and entries with `createdBy != "root"` that are pending write-back
-   are never evicted silently.
-
-If pinned entries alone exceed 8000 characters, injection does not truncate silently either: the digest emits
-the pinned lines and then `[memory over budget: N chars pinned; remove entries]`, and the next `add` returns
-`full`. `memory(list)` always returns **full** text for every entry, including entries evicted from the
-digest; the digest footer `+N more` (§6) is the pointer, so eviction costs visibility in the prompt but never
-data.
+- Restore `createdAtTurn` to `MemoryEntry`. It was dropped from the first implementation because a timestamp in the digest would break cache stability every turn; it may be stored and reported by `list`, but `Digest` must never render it.
+- Add a `pinned` flag, and a `prune` sweep that runs before injection and never from `add`: remove the oldest unpinned `fact` by `createdAtTurn`, then the oldest unpinned `task`, and never an `invariant`, a pinned entry, or a child's entry that the parent has not yet seen.
+- When pinned entries alone exceed the digest budget, do not truncate silently: emit the pinned lines, then a footer naming how many characters are pinned and asking the model to remove entries, and keep refusing further `add` calls.
+- Keep `list` answering full texts for every entry including the ones the digest left out, so eviction costs visibility in the prompt but never data. This already holds today (`src/Memory.cpp:208-232`) and must keep holding.
 
 ## Persistence
 
-Proposed: a JSON file per session, `logs/memory-<sessionId>.json`, written through `context.fs`
-(`ValidatedFileSystem::WriteTextFile`, `src/FileValidation.h:45`) so path validation applies and `Kern.build.json`,
-`.git` and `build/` stay unreachable. `logs/` beside the executable is already the convention for per-turn
-artifacts — `WriteLogFile` (`src/Session.cpp:80`), `BuildLogPath` (`:326`), `GetLogsDirectory` (`:316`) — so a
-sibling file costs nothing and never lands under `build/`. Proposed alternative: a `state/` directory if `logs/`
-is wiped between runs, at the cost of creating it.
+Nothing is written out, so a session reset (plan 03) or a lost process costs every entry the model wrote; that is the largest remaining piece of this design.
 
-Contents are the entries, a schema version and the session id; no timestamps beyond `createdAtTurn`, so the
-file is diffable and byte-stable. Loading is **best-effort**: a missing file, a parse error or a version
-mismatch yields an empty store and a one-line notice, never a session failure. The point is that a session
-reset ([03 Session reset](03-session-reset.md)) or a restart mid-task does not lose what the model decided.
+- One JSON file per session, `logs/memory-<sessionId>.json`, written through `context.fs` (`ValidatedFileSystem::WriteTextFile`, `src/FileValidation.h:45`) so that path validation applies and `Kern.build.json`, `.git` and `build/` stay unreachable.
+- Its contents are the entries, a schema version and the session id, with no timestamp beyond `createdAtTurn`, so that the file is diffable and byte-stable between runs.
+- Loading is best effort: a missing file, a parse error or a version mismatch yields an empty store and a one-line notice, never a failed session.
+- `logs/` beside the executable is already the convention for per-turn artifacts, so a sibling file costs nothing. A `state/` directory is the alternative if `logs/` turns out to be wiped between runs, at the cost of creating it.
 
 ## Interaction with compaction
 
-[01 Context compaction](01-context-compaction.md) proposes eliding redundant tool results and replacing them with stubs. The
-two features are complementary and must not fight:
+Plan 01 proposes eliding superseded tool results into short stubs. The two features must not fight:
 
-- Digest messages are transient and `pinned`; the compaction pass never elides them, and never counts their
-  characters against its own budget.
-- When compaction stubs a tool result, the memory entry derived from it **survives** — that is the entire
-  point of writing it down. Anything worth keeping beyond the stub belongs in memory; the stub is only the
-  evidence, the entry is the conclusion.
-- The compaction pass must skip digest messages when computing supersession keys, otherwise a digest line
-  that happens to quote a file path would be treated as a competing observation of that file and elided as
-  "superseded".
-- A memory entry does not retroactively elide the tool result it came from; the two run independently.
+- A digest message is transient and never part of the history, so the compaction pass can never reach it, and its characters never count against the compaction budget.
+- When compaction stubs a tool result, the memory entry derived from it survives: the stub is the evidence, the entry is the conclusion. That is the whole point of writing it down.
+- The compaction pass must skip digest messages when computing supersession keys, otherwise a digest line that happens to quote a file path would read as a competing observation of that file and be elided as superseded.
+- A memory entry never retroactively elides the tool result it came from; the two run independently.
 
-## System prompt changes
+## Risks and open questions
 
-Proposed: append this paragraph to `data/CommonSystemPrompt.txt`, which every agent loads:
+- Stale entries. The digest is injected unconditionally, so an entry the model stopped believing is as visible as a true one. The prompt paragraph addresses the habit (`data/CommonSystemPrompt.txt:15`) and `createdBy` plus the restored `createdAtTurn` give `list` something to judge an entry by; neither is a guarantee.
+- Character accounting. The caps are counted in characters, while the context window is quoted in tokens; whether the digest budget and the 8000-character store cap should share a unit with the window measurement is still open.
+- Sharing a mutable store across a session tree with no locking is safe only while tool calls stay synchronous. Parallel subagents, or one store used by concurrent sessions, would need the `std::mutex` described above.
+- Whether `createdBy` belongs in the digest at all, or only in `list`, is open, and with it whether a child's additions should be counted to the parent as a number.
+- A long-lived digest of 2000 characters every turn is real money in the window; whether the default budget should shrink when the store is nearly full is open.
 
-```txt
-You have a `memory` tool for durable notes. Use it for what you would otherwise have to re-derive: decisions
-you made and why, invariants the code must keep, constraints the user stated, and approaches that failed so
-you do not repeat them. Keep each entry to one or two sentences with a stable id, and remove entries that
-turn out to be wrong. Do not store file contents, line numbers or other details that a `read_file_chunk` can
-look up again, and do not record the mechanics of the current turn — what you just ran, what you are about to
-run, tool errors you already fixed. If an entry stops being true, replace or remove it; a stale entry is worse
-than no entry.
-```
+## Phased rollout
 
-The last sentence matters most: the digest is injected unconditionally, so an entry the model forgot to update
-is indistinguishable from a fact.
+Each phase is independently useful:
 
-## Registration
-
-Proposed edits, all mechanical:
-
-- `CMakeLists.txt:48-56` (the `src/Tools/*.h` header block): add `src/Tools/memory.h`.
-- `src/main.cpp:44-49`: add `Memory::Definition` to `constexpr ToolDefinition MainTools[]`, and
-  `#include "Tools/memory.h"` with the other tool includes.
-- `src/Tools/research.h:21` and `src/Tools/implement.h:25`: add `Memory::Definition` to each child tool array
-  (and the include) so subagents can read and write the shared store (§7).
-- `CMakeLists.txt:32-44` (the core block): add `src/Memory.cpp` and `src/Memory.h`.
-- Every `tests/CMakeLists.txt` binary whose source list contains `src/Session.cpp` also gets `../src/Memory.cpp`.
-Includes to add, verbatim: `#include "Memory.h"` and `#include "Tools/memory.h"` in `src/main.cpp`;
-`#include "Tools/memory.h"` in `src/Tools/research.h` and `src/Tools/implement.h`.
-
-## Testing
-
-Proposed `tests/MemoryTest.cpp`, seven cases:
-
-| case | expectation |
-| --- | --- |
-| `add`/`list`/`replace`/`remove` round-trip | entry appears with full text, edits apply, `remove` empties the store and `list` returns `entries: 0` |
-| duplicate `add` with an existing id | rejected as `invalid_argument`, existing entry unchanged |
-| `replace` on a missing id | `not_found`, store unchanged |
-| eviction under the char cap | adding past 8000 chars reports `full`; after eviction the oldest unpinned `fact` is gone and the `invariant` remains |
-| digest formatting | byte-identical output for the same store across calls, lines sorted by id, footer only when truncated |
-| pinned entries | survive eviction and appear before unpinned lines even when the budget is exceeded |
-| bad arguments | missing `id` on `add`, unknown `operation`, unknown `kind` → `invalid_argument` |
-
-The digest test is the important one: it must assert on exact bytes, because §6's cache-stability claim only
-holds if the formatting is deterministic. `tests/CMakeLists.txt` gets a new binary with an explicit source
-list, `target_include_directories(... ../src)` and `add_test`, matching the neighbours.
-
-## Alternatives considered
-
-| alternative | rejection reason |
-| --- | --- |
-| a free-form scratchpad the model appends to | unbounded, unstructured, and the model duplicates its own discarded reasoning in it; no ids means no targeted `replace`/`remove` and no deduplication |
-| keeping memory only in the system prompt | any edit rewrites the cached prefix (§6c), so every `add` costs a full re-prefill |
-| relying on compaction digests alone | compaction has no model intent — it keeps what is frequent, not what was decided — and it dies with the session, so nothing survives a reset |
-| a plain file the model edits with `write_file` | pollutes the user's workspace, races with real edits, needs a tool call to read back, and has no budget or validation |
-
-## Risks, open questions, and phased rollout
-
-- Stale entries: the model writes a decision, then changes the decision and forgets to update the entry. The
-  digest is unconditional, so the wrong entry is as visible as the right one. Mitigation: the prompt text in
-  §11 and `createdAtTurn` in `list` output.
-- Digest noise for small tasks: two injected lines per turn where nothing is remembered. Mitigation: emit no
-  wrapper at all when the store is empty.
-- Character accounting: chars vs. tokens, and whether `maxChars` (§6) and the 8000-char store cap share a unit.
-- Sharing a mutable store across a session tree with no locking — safe only while tool calls stay synchronous
-  (§3); parallel subagents would need the `std::mutex` described there. Whether `createdBy` belongs in the
-  child's digest at all, or only in `list`, is open.
-
-Phased rollout, each phase independently useful:
-
-1. `add`/`list` only, no persistence, digest injected as the transient trailing message of §6. Proves the
-   habit and the cache-stability claim before the store can grow.
-2. `replace`/`remove`, the §8 caps and eviction, and §9 persistence — the store becomes durable across
-   session resets.
-3. Subagent sharing (§7) and `invariant`/`decision` propagation with `propagate: true`; only worth doing once
-   the parent's own workflow is settled.
+1. Eviction: restore `createdAtTurn` and add `pinned`, then the prune sweep and the over-budget footer. Proves the store can be kept inside its budget without the model hand-deleting entries.
+2. Persistence: the per-session JSON file and its best-effort loading, so that a session reset or a restart keeps what was decided.
+3. Subagent write-back policy: one of the three options above, once the orchestrator's own habit is settled and a corpus exists to judge it against.
+4. The compaction guard of the section above, which only matters once plan 01 lands.

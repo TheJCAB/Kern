@@ -9,6 +9,7 @@
 #include "grep.h"
 #include "read_file_chunk.h"
 #include "build.h"
+#include "memory.h"
 
 #include <iterator>
 #include <string>
@@ -25,6 +26,7 @@ constexpr ToolDefinition Tools[] =
 {
     glob,
     grep,
+    memory,
     read_file_chunk,
 };
 
@@ -53,7 +55,10 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
             tools.push_back(build);
         }
 
-        Session session = context.createNewSession(context, parentSessionId, "research", RawReadTextFile(GetRuntimeDataDirectory() / "ResearchSystemPrompt.txt"), tools);
+        auto systemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "ResearchSystemPrompt.txt");
+        systemPrompt += std::format("\nYou have a total of {} turns to complete your task.", SubagentMaxTurns);
+
+        Session session = context.createNewSession(context, parentSessionId, "research", systemPrompt, tools, SubagentMaxTurns);
 
         Session::PromptResult const result = session.Prompt(prompt);
 

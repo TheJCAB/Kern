@@ -18,7 +18,7 @@ back to this plan.
 There are two hard-coded budgets and no way to change either without editing a header. The main
 agent's is `constexpr unsigned DefaultMaxTurns = 50;` (`src/CommandLine.h:30`), carried as
 `CommandLineOptions::maxTurns` (`src/CommandLine.h:40`) and consumed at `src/main.cpp:296`. A
-subagent's is a second, independent constant, `constexpr unsigned SubagentMaxTurns = 50;`
+subagent's is a second, independent constant, `constexpr unsigned SubagentMaxTurns = 10;`
 (`src/ToolUtilities.h:46`), passed positionally by the two subagent tools at
 `src/Tools/research.h:55` and `src/Tools/implement.h:62`. The two numbers are unrelated; nothing
 keeps them equal, nothing derives one from the other, and neither is recorded in a way that lets a

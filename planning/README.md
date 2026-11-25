@@ -5,10 +5,10 @@ This directory holds proposals and pending work for Kern, one document per plan.
 ## Pending plans
 
 - [01 Context compaction](01-context-compaction.md) — eliding redundant tool results into self-describing stubs. Proposal.
-- [02 Memory tool](02-memory-tool.md) — a curated store of decisions and invariants, injected as a resident digest. Proposal.
+- [02 Memory tool](02-memory-tool.md) — a curated, volatile store of decisions and invariants, injected as a resident digest. In progress.
 - [03 Session reset](03-session-reset.md) — replacing the conversation with a model-written prompt. Proposal.
 - [04 Shared note store](04-shared-note-store.md) — out-of-context bodies with a resident index. Proposal.
-- [05 Memory and context programme](05-memory-and-context-programme.md) — coordinates 01 to 04. Proposal.
+- [05 Memory and context programme](05-memory-and-context-programme.md) — coordinates 01 to 04. In progress.
 - [06 Session recording](06-session-recording.md) — self-contained, redacted transcripts with recorded provenance, and the transport seam that makes them replayable. In progress.
 - [07 Evaluation harness](07-evaluation-harness.md) — prompt-level and session-level cases scored declaratively against recorded transcripts. Proposal.
 - [08 Evaluation programme](08-evaluation-programme.md) — coordinates session recording and the evaluation harness, and owns the corpus lifecycle and the gate policy. In progress.

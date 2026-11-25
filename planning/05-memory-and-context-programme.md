@@ -1,8 +1,8 @@
 # Memory and context programme
 
-Status: **proposal, nothing implemented.** This document coordinates the four designs numbered 01 to 04.
+Status: **in progress.** This document coordinates the four designs numbered 01 to 04.
 
-Related designs: [01 Context compaction](01-context-compaction.md) — supersession rules, stub format, trigger; [02 Memory tool](02-memory-tool.md) — digest injection, budget and eviction; [03 Session reset](03-session-reset.md) — where a reset may execute, what survives; [04 Shared note store](04-shared-note-store.md) — index in the prompt, tree sharing, naming discipline. Each of the four links back to this programme.
+Related designs: [01 Context compaction](01-context-compaction.md) — supersession rules, stub format, trigger; [02 Memory tool](02-memory-tool.md) — eviction, persistence, subagent write-back policy; [03 Session reset](03-session-reset.md) — where a reset may execute, what survives; [04 Shared note store](04-shared-note-store.md) — index in the prompt, tree sharing, naming discipline. Each of the four links back to this programme.
 
 ## The problem
 
@@ -13,7 +13,7 @@ Related designs: [01 Context compaction](01-context-compaction.md) — supersess
 | Document | What it does | Cost / cache impact | When it runs |
 | --- | --- | --- | --- |
 | [01 Context compaction](01-context-compaction.md) — supersession rules, stub format, trigger | Automatic and system-authored: elides redundant tool results into short self-describing stubs by rewriting `content`; never deletes or reorders messages | One prefix-invalidating prefill per pass, repaid only if the reclaim clears `minReclaim`; hysteresis high→low water mark | Top of a turn, immediately before `BuildPayload`, never mid-turn |
-| [02 Memory tool](02-memory-tool.md) — digest injection, budget and eviction, subagent inheritance | Model-authored `memory` tool (`add`/`replace`/`remove`/`list`) over a small curated store of decisions, invariants and tasks | Always resident as a ~2k-char digest in a transient trailing message, so the cached prefix still hits | Digest rebuilt once per turn inside the payload; store mutated only on a tool call |
+| [02 Memory tool](02-memory-tool.md) — eviction, persistence, subagent write-back policy | Model-authored `memory` tool (`add`/`replace`/`remove`/`list`) over a small curated store of decisions, invariants and tasks; the store is held in memory only and is never persisted | Always resident as a ~2k-char digest in a transient trailing message, so the cached prefix still hits | Digest rebuilt once per turn inside the payload; store mutated only on a tool call |
 | [03 Session reset](03-session-reset.md) — where a reset may execute, what survives, prompt quality | Wholesale amnesia: `reset_session` replaces everything after the system message with a model-written new prompt | Total prefix rebuild; no turn refund and resets are capped, so it stays rare | Deferred: applied only after the turn's whole tool-result batch is appended |
 | [04 Shared note store](04-shared-note-store.md) — index in the prompt, tree sharing, naming discipline | Out-of-context key-value store: `notes` tool (`write`/`read`/`list`/`erase`) for bodies up to 64 KB, with only a one-line-per-entry index resident | ~1500-char index every turn; each body costs one explicit call instead of permanent residency | Index rebuilt per turn; bodies fetched on demand |
 
@@ -39,6 +39,5 @@ They share two mechanisms rather than duplicating plumbing: the *transient trail
 
 1. Measure first: metadata only (`id`, `turn`, resource keys) and redundancy logged to `logs/...compaction.json`, with no elision ever.
 2. Compaction Tier 1: deterministic stubs and supersession rules, testable without a live service.
-3. Memory tool: `add`/`list` plus the transient digest, proving the habit and the cache-stability claim.
-4. Note store: write/read/list over the shared store, then the caps and `erase`.
-5. Session reset last: it depends on memory and notes already being in place, so that a reset has somewhere durable to leave state.
+3. Note store: write/read/list over the shared store, then the caps and `erase`.
+4. Session reset last: it depends on memory and notes already being in place, so that a reset has somewhere durable to leave state.

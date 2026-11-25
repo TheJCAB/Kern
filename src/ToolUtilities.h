@@ -101,6 +101,9 @@ struct ToolDefinition
     std::span<ToolParameter const> requiredParameters{};
     std::span<ToolParameter const> optionalParameters{};
     ToolCallable&                  callTool;
+    // Standing policy about this tool's place in the workflow, appended to the system prompt when the tool
+    // is active; call mechanics belong in description instead, and an empty value contributes nothing.
+    std::string_view               promptFragment{};
 };
 
 struct ToolCall
@@ -128,6 +131,10 @@ struct ToolCallDelta
 };
 
 json BuildPayloadToolDefinitions(std::span<ToolDefinition const>);
+
+// Joins the prompt fragment of every tool that has one, in tool order, so the session prompt can be
+// assembled once when the session starts. Returns an empty string when no tool has a fragment.
+std::string BuildToolPromptFragments(std::span<ToolDefinition const> tools);
 
 std::vector<ToolCall> ParseToolCalls(json::array_t const& toolCalls);
 

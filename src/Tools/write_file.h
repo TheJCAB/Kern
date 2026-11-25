@@ -48,4 +48,7 @@ constexpr ToolDefinition write_file
     .description        = "Write text content to a file, replacing any existing contents. Returns whether the file was created and its new line count.",
     .requiredParameters = WriteFileToolParameters,
     .callTool           = WriteFileTool,
+    .promptFragment     = "For a small change prefer edit_file_lines over rewriting a whole file: a rewrite "
+                          "replaces content the caller never asked you to touch. Never create a file the task does "
+                          "not need, and never create one that exists only to be deleted.",
 };

@@ -99,8 +99,13 @@ constexpr ToolDefinition read_file_chunk
     .description        = "Read some number of lines from a file per call, starting at 'start_line', up until 'end_line'. "
                           "The response contains 'lines' (an array of {line, text}), 'end_of_file' if the end of the file is reached, "
                           "'truncated' set to true if the response includes less lines than were requested and in that case "
-                          "'next_start_line', which should be passed as the next 'start_line' instead of computing ranges yourself.",
+                          "'next_start_line', which should be passed as the next 'start_line' instead of computing ranges yourself. "
+                          "The call returns at most 1000 lines, so a longer range is capped and reported through 'truncated'.",
     .requiredParameters = ReadFileChunkToolRequiredParameters,
     .optionalParameters = ReadFileChunkToolOptionalParameters,
     .callTool           = ReadFileChunkTool,
+    .promptFragment     = "Read a file rather than guessing at what it contains, and read only the ranges the task "
+                          "actually needs: context spent on a file is context the rest of the task cannot use. "
+                          "Stop as soon as you have what you need, and do not re-read a region whose content "
+                          "is still in the conversation.",
 };

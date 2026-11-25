@@ -60,4 +60,6 @@ constexpr ToolDefinition delete_file
     .description        = "Delete exactly one file from the workspace. It refuses directories, unknown roots and protected paths, and there is no undo. Returns whether a file was actually removed.",
     .requiredParameters = DeleteFileToolParameters,
     .callTool           = DeleteFileTool,
+    .promptFragment     = "Never remove a file the task did not ask you to remove. A deletion that turns out to be wrong "
+                          "cannot be undone, so when in doubt leave the file in place and say why.",
 };

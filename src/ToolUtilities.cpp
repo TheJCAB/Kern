@@ -230,6 +230,26 @@ std::vector<ToolCallDelta> ParseToolCallsDelta(json::array_t const& toolCalls)
     return result;
 }
 
+std::string BuildToolPromptFragments(std::span<ToolDefinition const> tools)
+{
+    std::string fragments;
+
+    for (ToolDefinition const& tool : tools)
+    {
+        if (tool.promptFragment.empty())
+        {
+            continue;
+        }
+
+        // The prompt it is appended to already ends with a newline, so a leading newline makes the blank
+        // line between paragraphs and a trailing one lets whatever comes next start on its own line.
+        fragments += '\n';
+        fragments.append(tool.promptFragment);
+        fragments += '\n';
+    }
+
+    return fragments;
+}
 std::string CallTool(std::string_view const name, json const& arguments, ToolsRuntimeContext const& context, std::string_view const parentSessionId, std::span<ToolDefinition const> const tools)
 {
     auto const it = std::ranges::find_if(tools, [&](auto& toolDef){ return toolDef.name == name; });

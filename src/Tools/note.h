@@ -68,16 +68,17 @@ constexpr ToolParameter NoteToolOptionalParameters[] =
 constexpr ToolDefinition note
 {
     .name               = "note",
-    .description        = "Keep a thought where you thought it: a decision and why, an invariant the code must keep, a "
-                          "constraint the user stated, or an approach that failed. It is stored in this turn of the "
-                          "conversation and replayed in order afterwards, so never repeat a note. Not for progress "
-                          "narration, not for anything a search or read tool can look up again, and every replay costs "
-                          "context, so keep notes rare. Give it an id whenever a later turn may retire it, since a note "
-                          "without an id can never be retired, and pass obsolete with that id to record that it no longer "
-                          "applies, which removes nothing. Notes belong to the session that made them and are never shared "
-                          "with another session, so anything a subagent of yours needs must be in the prompt you write for "
-                          "it.",
+    .description        = "Keep a thought where you thought it. It is stored in this turn of the conversation and "
+                          "replayed in order afterwards. Give it an id when a later turn may retire it, and pass "
+                          "obsolete with that ID to record that it no longer applies, which removes nothing from "
+                          "the conversation. Keep text to one or two sentences: a longer thought is meant to be "
+                          "split into one note per thought.",
     .requiredParameters = NoteToolParameters,
     .optionalParameters = NoteToolOptionalParameters,
     .callTool           = NoteTool,
+    .promptFragment     = "Keep notes rare: every note is replayed for the rest of the session and costs context "
+                          "each time, so never repeat one and never note anything a search or read tool can look "
+                          "up again. A note is not progress narration. Notes belong to the session that made them "
+                          "and are never shared with another session, so anything a subagent needs must be in the "
+                          "prompt that starts it.",
 };

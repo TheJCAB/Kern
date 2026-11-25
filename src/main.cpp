@@ -174,7 +174,8 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
             return Session{Session::Config{
                 .endpointDescriptor = settings.endpoint,
                 .toolContext        = context,
-                .systemPrompt       = std::string(systemPrompt) + settings.commonSystemPrompt + settings.workspaceInstructions,
+                .systemPrompt       = std::string(systemPrompt) + settings.commonSystemPrompt + BuildToolPromptFragments(tools)
+                                      + settings.workspaceInstructions,
                 .modelName          = settings.model,
                 .tools              = tools,
                 .maxTokens          = settings.maxTokens,
@@ -358,7 +359,9 @@ int Run(CommandLineOptions const& options)
     }
 
     // The runtime context is appended last so it is the final thing the orchestrator reads.
-    std::string const systemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "MainSystemPrompt.txt") + settings.commonSystemPrompt + settings.workspaceInstructions + DescribeRuntimeContext(settings);
+    std::string const systemPrompt = RawReadTextFile(GetRuntimeDataDirectory() / "MainSystemPrompt.txt") + settings.commonSystemPrompt
+                                     + BuildToolPromptFragments(MainTools) + settings.workspaceInstructions
+                                     + DescribeRuntimeContext(settings);
 
     Session session{Session::Config{
         .endpointDescriptor = settings.endpoint,

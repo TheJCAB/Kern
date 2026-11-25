@@ -155,3 +155,24 @@ target_include_directories(prompt_command_tests PRIVATE ../src)
 target_link_libraries(prompt_command_tests PRIVATE TestUtilities)
 
 add_test(NAME prompt_command_tests COMMAND prompt_command_tests)
+
+add_executable(error_recovery_tests
+    ErrorRecoveryTests.cpp
+    ../src/ErrorRecovery.cpp
+    ../src/StringUtilities.cpp
+)
+
+target_include_directories(error_recovery_tests PRIVATE ../src)
+target_link_libraries(error_recovery_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME error_recovery_tests COMMAND error_recovery_tests)
+
+add_executable(turn_limit_recovery_tests
+    TurnLimitRecoveryTests.cpp
+    ../src/TurnLimitRecovery.cpp
+)
+
+target_include_directories(turn_limit_recovery_tests PRIVATE ../src)
+target_link_libraries(turn_limit_recovery_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME turn_limit_recovery_tests COMMAND turn_limit_recovery_tests)

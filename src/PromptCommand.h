@@ -8,17 +8,18 @@
 // row to the table in PromptCommand.cpp.
 enum class PromptCommandKind
 {
-    prompt,  // ordinary text: hand it to the session
-    blank,   // the line was empty: ask for another prompt
-    help,    // '/help': list the available commands
-    bye,     // '/bye': end the session
-    unknown, // a '/'-prefixed line whose first word names no command
+    blank,     // the line was empty: ask for another prompt
+    prompt,    // ordinary text: hand it to the session
+    help,      // '/help': list the available commands
+    bye,       // '/bye': end the session
+    moreTurns, // '/continue [N]': grant the session more turns and resume
+    unknown,   // a '/'-prefixed line whose first word names no command
 };
 
 // One line of input, split into a command and its parts.
 struct PromptCommand
 {
-    PromptCommandKind kind = PromptCommandKind::prompt;
+    PromptCommandKind kind = PromptCommandKind::blank;
     std::string       text{};     // prompt text for the session; set only for kind 'prompt'
     std::string       name{};     // the command word without its leading '/'; set for command kinds
     std::string       argument{}; // what follows the command word, trimmed; empty when there is none

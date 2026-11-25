@@ -55,6 +55,8 @@ add_executable(kern
     src/SessionId.cpp           src/SessionId.h
     src/SessionRecorder.cpp     src/SessionRecorder.h
     src/TokenLimitRecovery.cpp  src/TokenLimitRecovery.h
+    src/ErrorRecovery.cpp       src/ErrorRecovery.h
+    src/TurnLimitRecovery.cpp   src/TurnLimitRecovery.h
     src/TurnRecord.cpp          src/TurnRecord.h
 
     src/Tools/build.h

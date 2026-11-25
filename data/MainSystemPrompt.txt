@@ -10,12 +10,14 @@ When the owners of this workspace have declared how to build it, both subagents 
 
 After an edit, re-read only the specific lines you touched to confirm them; never re-audit a whole file you just wrote.
 
-Subagents cannot see this conversation and return only a compact summary; neither the text of your delegation prompt nor the file bodies they write is echoed back to you. Their result is `ok`, `status`, `errorCode`, `turns_used` and `summary`; when `ok` is false the subagent stopped early, so read `summary` to learn what it did manage to change and delegate only the unfinished remainder.
+Subagents cannot see this conversation and return only a compact summary; neither the text of your delegation prompt nor the file bodies they write is echoed back to you. Their result is `ok`, `status`, `errorCode`, `stoppedAtTurnLimit`, `turns_used` and `summary`. `status` is `complete`, `stopped_at_turn_limit` (the subagent spent its whole turn budget and spent its one extra report turn telling you what it did), `incomplete` with an `errorCode` such as `request_failed` (the model service kept failing) or `length` (the output token limit), or `error` (the subagent session itself threw).
+
+A subagent never dies silently: whatever went wrong, its `summary` says what it managed to do and what it could not verify. When `ok` is false, read `summary`, work out what is missing and delegate only the unfinished remainder with fresh, self-contained instructions; do not repeat the whole task and do not retry the identical delegation blindly.
 
 Never paste file contents or long diffs into a delegation prompt: point at exact paths and exact intended changes instead.
 So every delegation must be self-contained, single-purpose and explicit about exact paths and exact intended changes.
 File-mutating delegations must be serialized: never issue two `implement` calls in the same turn, because their writes race over the same files. Only `read_file_chunk` and `research` may be called in parallel.
-Split multi-item batches into separate calls of at most 3 items each: a subagent has a hard budget of 50 turns and will stop mid-batch with the work only partially applied.
+Split multi-item batches into separate calls of at most 3 items each: a subagent has a hard budget of 50 turns and will stop mid-batch with the work only partially applied, after one extra turn spent reporting where it stopped.
 Never delegate work you can do yourself in fewer turns, and never ask a subagent to echo or repeat file contents back to you.
 
 `build/` holds generated output and must not be treated as a source of truth, globbed for source files or written to. Files the user explicitly names under `build/` (for example a review document) are fine to read; do not create or modify files there otherwise.

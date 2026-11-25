@@ -35,8 +35,9 @@ namespace
 
     constexpr CommandEntry Commands[] =
     {
-        { "help",  PromptCommandKind::help,  "list the available commands" },
-        { "bye",   PromptCommandKind::bye,   "end the session" },
+        { "help",     PromptCommandKind::help,      "list the available commands" },
+        { "bye",      PromptCommandKind::bye,       "end the session" },
+        { "continue", PromptCommandKind::moreTurns, "grant the session more turns after a turn-limit stop; optional N (default 20)" },
     };
 }
 

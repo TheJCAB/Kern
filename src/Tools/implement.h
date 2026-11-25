@@ -62,12 +62,21 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 
         Session::PromptResult const result = session.Prompt(prompt);
 
+        // A wrap-up report, granted once the subagent spent its turn budget, is still an answer,
+        // but it is not a finished task, so it must not read as "complete".
+        std::string status = "incomplete";
+        if (result.ok)
+        {
+            status = result.stoppedAtTurnLimit ? "stopped_at_turn_limit" : "complete";
+        }
+
         return json{
-            { "ok"        , result.ok                                },
-            { "status"    , result.ok ? "complete" : "incomplete"    },
-            { "errorCode" , result.errorCode                         },
-            { "turns_used", result.turnsUsed                         },
-            { "summary"   , result.content                           },
+            { "ok"                 , result.ok                             },
+            { "status"             , std::move(status)                     },
+            { "errorCode"          , result.errorCode                      },
+            { "stoppedAtTurnLimit" , result.stoppedAtTurnLimit             },
+            { "turns_used"         , result.turnsUsed                      },
+            { "summary"            , result.content                        },
         };
     }
     catch (std::exception const& e)
@@ -97,10 +106,14 @@ constexpr ToolDefinition Definition
                           "'Rename the A member of class B from file F to C, including references in files G, H and I', "
                           "'Turn the global variable A into a parameter passed to all functions that need it transitively. Files: F, G, H', "
                           "etc... "
-                          "When the task is complete, the tool will report the result.",
+                          "When the task is complete, the tool will report the result. "
+                          "The result reports `ok`, `status`, `errorCode`, `stoppedAtTurnLimit`, `turns_used` and `summary`; when the "
+                          "subagent ran out of turns it still reports what it did, with `status` \"stopped_at_turn_limit\" and "
+                          "`errorCode` \"too_many_turns\", so delegate only what remains. ",
     .requiredParameters = RequiredParameters,
     .optionalParameters = {},
     .callTool           = ToolFunction
 };
 
 }
+// namespace Tools::implement

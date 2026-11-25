@@ -12,11 +12,13 @@
 #include "SessionRecorder.h"
 #include "StringUtilities.h"
 #include "ToolUtilities.h"
+#include "TurnLimitRecovery.h"
 
 #include "Tools/implement.h"
 #include "Tools/read_file_chunk.h"
 #include "Tools/research.h"
 #include <algorithm>
+#include <charconv>
 #include <cstddef>
 #include <cstdio>
 #include <exception>
@@ -390,6 +392,51 @@ int Run(CommandLineOptions const& options)
                     break;
                 case PromptCommandKind::bye:
                     return 0;
+                case PromptCommandKind::moreTurns:
+                {
+                    // '/continue [N] [TEXT]' grants the session N more turns, defaulting to
+                    // TurnLimitRecovery::DefaultGrantTurns, now that it has run out of them, and any TEXT
+                    // left over after the number steers the prompt that resumes the session.
+                    std::string_view const argument = command.argument;
+                    std::size_t const separator = argument.find_first_of(" \t");
+                    std::string_view const token = argument.substr(0, separator);
+
+                    unsigned grantedTurns = TurnLimitRecovery::DefaultGrantTurns;
+                    std::string_view steering = argument;
+                    if (!token.empty())
+                    {
+                        unsigned parsedTurns = 0;
+                        std::from_chars_result const parsed =
+                            std::from_chars(token.data(), token.data() + token.size(), parsedTurns);
+                        if (parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() || parsedTurns == 0)
+                        {
+                            std::println("Invalid turn count '{}': /continue takes a positive whole number of turns, or no argument at all.", token);
+                            break;
+                        }
+                        grantedTurns = parsedTurns;
+                        steering = std::string_view{};
+                        std::size_t const firstText = argument.find_first_not_of(" \t", separator);
+                        if (firstText != std::string_view::npos)
+                        {
+                            steering = argument.substr(firstText);
+                        }
+                    }
+
+                    session.GrantTurns(grantedTurns);
+
+                    std::string resumeText = std::format(
+                        "{} more turns have been granted by the user because the previous prompt spent the whole turn budget. "
+                        "Resume the work you were doing rather than starting over, and finish with a final report of what "
+                        "is done and what remains.",
+                        grantedTurns);
+                    if (!steering.empty())
+                    {
+                        resumeText += std::format(" The user adds: {}", steering);
+                    }
+
+                    command = PromptCommand{ .kind = PromptCommandKind::prompt, .text = std::move(resumeText) };
+                    continue;
+                }
                 case PromptCommandKind::unknown:
                     std::println("Unknown command: /{}{}. Type /help for the list of commands.",
                         command.name, command.argument.empty() ? "" : " " + command.argument);
@@ -405,11 +452,32 @@ int Run(CommandLineOptions const& options)
 
         // The response is streamed to the console by Session::Prompt, so there is nothing to return.
         // TODO: Make console output optional or configurable.
-        Session::PromptResult const result = session.Prompt(command.text);
+        Session::PromptResult result;
+        try
+        {
+            result = session.Prompt(command.text);
+        }
+        catch (std::exception const& error)
+        {
+            std::println("The session failed: {}", error.what());
+            // A failure outside the agent loop must not end the session either: the user gets
+            // another prompt and the conversation is kept.
+            command = PromptCommand{};
+            continue;
+        }
 
         if (!result.ok)
         {
             std::fprintf(stderr, "error: %s (%s after %u turns)\n", result.content.c_str(), result.errorCode.c_str(), result.turnsUsed);
+            // A spent turn budget is resumable with /continue, while any other failure is not.
+            if (result.errorCode == std::string(TurnLimitErrorCode))
+            {
+                std::println("The session ran out of turns. Type /continue [N] to grant N more turns "
+                             "(default {}) and resume the session.",
+                    TurnLimitRecovery::DefaultGrantTurns);
+                command = PromptCommand{};
+                continue;
+            }
             return 1;
         }
 

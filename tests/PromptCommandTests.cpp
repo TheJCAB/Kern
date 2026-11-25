@@ -94,6 +94,23 @@ int main()
         ExpectEqual(tab.argument, std::string(""), "a trailing tab leaves no argument");
 
         ExpectEqual(Parse("/bye\r").kind, PromptCommandKind::bye, "a carriage return left by CRLF input is trimmed");
+
+        auto const more = Parse("/continue");
+        ExpectEqual(more.kind, PromptCommandKind::moreTurns, "/continue is the continue command");
+        ExpectEqual(more.name, std::string("continue"), "/continue names continue");
+        ExpectEqual(more.argument, std::string(""), "/continue takes no argument by default");
+
+        auto const ten = Parse("/continue 10");
+        ExpectEqual(ten.kind, PromptCommandKind::moreTurns, "/continue names the continue command before its argument");
+        ExpectEqual(ten.argument, std::string("10"), "the argument after /continue is kept");
+
+        auto const five = Parse("  /continue  5  ");
+        ExpectEqual(five.kind, PromptCommandKind::moreTurns, "/continue is recognised through surrounding blanks");
+        ExpectEqual(five.argument, std::string("5"), "the argument after /continue is trimmed");
+
+        auto const disabled = ParsePromptCommand("/continue", false);
+        ExpectEqual(disabled.kind, PromptCommandKind::prompt, "/continue is prompt text when commands are disabled");
+        ExpectEqual(disabled.text, std::string("/continue"), "/continue keeps its text when commands are disabled");
     }
 
     std::println("Test Unknown");

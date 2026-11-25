@@ -21,6 +21,9 @@ public:
         std::string errorCode;
         std::string content;
         unsigned    turnsUsed = 0;
+        // True when the answer came from the extra report turn granted after the turn budget was spent,
+        // i.e. the task was not finished.
+        bool        stoppedAtTurnLimit = false;
 
         operator nlohmann::json() const;
     };
@@ -51,6 +54,11 @@ public:
     Session& operator=(Session&&);
 
     PromptResult Prompt(std::string_view prompt);
+
+    // Adds `extraTurns` on top of the configured turn budget, which is how a REPL user resumes a
+    // session that ran out of turns. A session configured with no turn limit (maxTurns == 0) is
+    // unaffected, and `extraTurns` of 0 does nothing.
+    void GrantTurns(unsigned extraTurns);
 
 private:
     struct Pimpl;

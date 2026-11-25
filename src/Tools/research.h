@@ -13,10 +13,12 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Tools::research
 {
+
 // The tools that the researcher may always use. `build` is added on top of this list only when
 // the workspace declares a build (see ToolFunction below); the orchestrator never gets `build`.
 constexpr ToolDefinition Tools[] =
@@ -55,12 +57,21 @@ inline json ToolFunction(json const& arguments, ToolsRuntimeContext const& conte
 
         Session::PromptResult const result = session.Prompt(prompt);
 
+        // A wrap-up report, granted once the subagent spent its turn budget, is still an answer,
+        // but it is not a finished task, so it must not read as "complete".
+        std::string status = "incomplete";
+        if (result.ok)
+        {
+            status = result.stoppedAtTurnLimit ? "stopped_at_turn_limit" : "complete";
+        }
+
         return json{
-            { "ok"        , result.ok                                },
-            { "status"    , result.ok ? "complete" : "incomplete"    },
-            { "errorCode" , result.errorCode                         },
-            { "turns_used", result.turnsUsed                         },
-            { "summary"   , result.content                           },
+            { "ok"                , result.ok                          },
+            { "status"            , std::move(status)                  },
+            { "errorCode"         , result.errorCode                   },
+            { "stoppedAtTurnLimit", result.stoppedAtTurnLimit          },
+            { "turns_used"        , result.turnsUsed                   },
+            { "summary"           , result.content                     },
         };
     }
     catch (std::exception const& e)
@@ -86,7 +97,10 @@ constexpr ToolDefinition Definition
     .description        = "Delegate a research task to a research subagent. "
                           "This subagent may perform tasks like globbing, grepping, and reading files to gain knowledge about the workspace. "
                           "When the workspace declares a build, it may also run the fixed build command to report pre-existing build errors. "
-                          "When the task is complete, the subagent will report the result.",
+                          "When the task is complete, the subagent will report the result. "
+                          "The result reports `ok`, `status`, `errorCode`, `stoppedAtTurnLimit`, `turns_used` and `summary`; when the "
+                          "subagent ran out of turns it still reports what it did, with `status` \"stopped_at_turn_limit\" and "
+                          "`errorCode` \"too_many_turns\", so delegate only what remains. ",
     .requiredParameters = RequiredParameters,
     .optionalParameters = {},
     .callTool           = ToolFunction

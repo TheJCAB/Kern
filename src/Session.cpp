@@ -2,6 +2,7 @@
 
 #include "ChatTransport.h"
 #include "Conversation.h"
+#include "ErrorRecovery.h"
 #include "JsonUtilities.h"
 #include "LogFile.h"
 #include "Logging.h"
@@ -10,10 +11,12 @@
 #include "TokenLimitRecovery.h"
 #include "ToolUtilities.h"
 #include "TurnRecord.h"
+#include "TurnLimitRecovery.h"
 #include "XmlToolCallParser.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <print>
 #include <span>
@@ -102,17 +105,42 @@ struct Session::Pimpl
 
         m_conversationHistory.push_back({ .role{ "user" }, .content{ prompt } });
 
-        TokenLimitRecovery recovery;
+        // Each policy owns one kind of interruption: a cut-off response, a failed request, a spent turn budget.
+        TokenLimitRecovery tokenLimitRecovery;
 
-        while (m_maxTurns == 0 || m_currentTurn < m_maxTurns)
+        ErrorRecovery errorRecovery;
+
+        TurnLimitRecovery turnLimitRecovery;
+
+        bool reportTurnOffered = false;
+
+        while (true)
         {
+            // The report turns are extra turns granted beyond the budget to a model that still owes the
+            // session an answer. Once one has been offered and spent, the session is out of turns.
+            if (m_maxTurns != 0 && m_currentTurn >= m_maxTurns + turnLimitRecovery.PendingWrapUpTurns())
+            {
+                if (reportTurnOffered)
+                {
+                    break;
+                }
+                reportTurnOffered = true;
+                turnLimitRecovery.OfferWrapUp(m_currentTurn, m_maxTurns);
+                continue;
+            }
             m_log.SetSequence(m_currentTurn);
 
             TurnRecord turnRecord{ m_recorder, m_currentTurn };
             std::println("===============================\nTurn {} [{}]", m_currentTurn, m_log.Id());
             try
             {
-                json const payload = BuildChatPayload(m_conversationHistory, recovery.Messages(), { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens });
+                // Transient messages for this request only, highest precedence first: the report instruction outranks a
+                // failure report, which outranks a cut-off nudge.
+                std::vector<ConversationMessage> transientMessages;
+                transientMessages.insert(transientMessages.end(), turnLimitRecovery.Messages().begin(), turnLimitRecovery.Messages().end());
+                transientMessages.insert(transientMessages.end(), errorRecovery.Messages().begin(), errorRecovery.Messages().end());
+                transientMessages.insert(transientMessages.end(), tokenLimitRecovery.Messages().begin(), tokenLimitRecovery.Messages().end());
+                json const payload = BuildChatPayload(m_conversationHistory, transientMessages, { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens });
                 Log(LogLevel::debug, "m_currentTurn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     m_currentTurn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_currentTurn);
 
@@ -168,6 +196,8 @@ struct Session::Pimpl
                             .role    = "assistant",
                             .content = std::move(modelResponse.content),
                         });
+                        tokenLimitRecovery.OnProductiveTurn();
+                        errorRecovery.OnProductiveTurn();
                         continue;
                     }
                 }
@@ -208,16 +238,25 @@ struct Session::Pimpl
                             .content   = modelResponse.content,
                         });
                         return {
-                            .ok        = true,
-                            .errorCode = {},
-                            .content   = std::move(modelResponse.content),
-                            .turnsUsed = m_currentTurn,
+                            .ok                 = true,
+                            .errorCode          = {},
+                            .content            = std::move(modelResponse.content),
+                            .turnsUsed          = m_currentTurn,
+                            .stoppedAtTurnLimit = turnLimitRecovery.WrapUpPending(),
                         };
                     }
                 }
 
                 if (modelResponse.reason == ResponseFinishReason::tool_calls)
                 {
+                    if (turnLimitRecovery.WrapUpPending())
+                    {
+                        // The report turn went to a tool call, so there will be no report. The tool is not
+                        // executed: the model was told in the instruction that it would not be.
+                        std::println("The model spent its final report turn on a tool call instead of writing a report");
+                        turnLimitRecovery.OnWrapUpTurn();
+                        break;
+                    }
                     if (modelResponse.toolCalls.empty())
                     {
                         if (modelResponse.content.empty())
@@ -233,10 +272,11 @@ struct Session::Pimpl
                                 .content   = modelResponse.content,
                             });
                             return {
-                                .ok        = true,
-                                .errorCode = {},
-                                .content   = std::move(modelResponse.content),
-                                .turnsUsed = m_currentTurn,
+                                .ok                 = true,
+                                .errorCode         = {},
+                                .content            = std::move(modelResponse.content),
+                                .turnsUsed          = m_currentTurn,
+                                .stoppedAtTurnLimit = turnLimitRecovery.WrapUpPending(),
                             };
                         }
                     }
@@ -251,13 +291,15 @@ struct Session::Pimpl
                         m_conversationHistory.push_back(MakeToolResultMessage(toolCall.id, toolResult));
                     }
                     // A turn that produced work resets the cut-off escalation to the polite first retry.
-                    recovery.OnProductiveTurn();
+                    tokenLimitRecovery.OnProductiveTurn();
+                    // ...and with it the escalation over failed requests.
+                    errorRecovery.OnProductiveTurn();
                 }
-                else if (modelResponse.reason == ResponseFinishReason::length && !recovery.Exhausted())
+                else if (modelResponse.reason == ResponseFinishReason::length && !tokenLimitRecovery.Exhausted())
                 {
                     // Token cap hit mid-thought: for one request only, show the model its partial output and tell it to act.
                     // The replacement response is what ends up in the history.
-                    recovery.OnCutOff(modelResponse.reasoning, modelResponse.content, m_maxTokens);
+                    tokenLimitRecovery.OnCutOff(modelResponse.reasoning, modelResponse.content, m_maxTokens);
                 }
                 else if (modelResponse.reason == ResponseFinishReason::length)
                 {
@@ -277,12 +319,25 @@ struct Session::Pimpl
             }
             catch (std::exception const& error)
             {
+                // A failed request is not fatal: report it to the model so that it can try again, and give up only
+                // once the consecutive failures have spent every retry.
                 std::println("agent error: {}", error.what());
-                throw;
+                turnRecord.SetFinishReason("error");
+                errorRecovery.OnFailure(error.what());
+                if (errorRecovery.Exhausted())
+                {
+                    return { .ok        = false,
+                             .errorCode = "request_failed",
+                             .content   = std::format("The model request failed {} times in a row: {}", ErrorRecovery::MaxRetries, error.what()),
+                             .turnsUsed = m_currentTurn };
+                }
             }
         }
 
-        return  { .ok = false, .errorCode = "too_many_turns", .content = "The model took too many turns", .turnsUsed = m_maxTurns };
+        return { .ok        = false,
+                 .errorCode = std::string(TurnLimitErrorCode),
+                 .content   = std::format("The model spent all {} turns this session is allowed without producing a final answer; everything done so far is in the conversation and can be continued if more turns are granted", m_maxTurns),
+                 .turnsUsed = m_currentTurn };
     }
 
     // Writes the session manifest before the first request and rewrites it with the outcome afterwards; a throw
@@ -311,6 +366,19 @@ struct Session::Pimpl
         return result;
     }
 
+    // Grants extra turns on top of the configured budget: the way a REPL user resumes a session that ran out of
+    // turns. A session configured with no turn limit has nothing to grant, and 0 extra turns grants nothing.
+    void GrantTurns(unsigned extraTurns)
+    {
+        if (m_maxTurns == 0 || extraTurns == 0)
+        {
+            return;
+        }
+
+        m_maxTurns += extraTurns;
+        std::println("[{}] granted {} more turns; budget is now {} turns and {} have been spent", m_log.Id(), extraTurns, m_maxTurns, m_currentTurn);
+    }
+
     Endpoint                         m_endpointDescriptor;
     ToolsRuntimeContext              m_toolContext;
     std::string                      m_modelName;
@@ -329,10 +397,11 @@ struct Session::Pimpl
 Session::PromptResult::operator nlohmann::json() const
 {
     return {
-        { "ok"       , ok        },
-        { "errorCode", errorCode },
-        { "content"  , content   },
-        { "turnsUsed", turnsUsed }
+        { "ok"                , ok                 },
+        { "errorCode"         , errorCode          },
+        { "content"           , content            },
+        { "turnsUsed"         , turnsUsed          },
+        { "stoppedAtTurnLimit", stoppedAtTurnLimit }
     };
 }
 
@@ -348,3 +417,5 @@ Session::PromptResult Session::Prompt(std::string_view prompt)
 {
     return m_pimpl->Prompt(prompt);
 }
+
+void Session::GrantTurns(unsigned extraTurns) { m_pimpl->GrantTurns(extraTurns); }

@@ -25,8 +25,10 @@
 #include <cstddef>
 #include <cstdio>
 #include <exception>
+#include <expected>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -80,6 +82,57 @@ struct SessionSettings
 
     // Empty unless the owners of the workspace declared how to build it.
     std::optional<BuildCommands> buildCommands;
+};
+
+// Owns the real session of one live subagent, so the registry can hold it and resume it without ever knowing
+// what a Session is. The session stays inside this object for as long as the subagent is live, which is what
+// keeps a stopped subagent's conversation, its record and its transcript available for the next call.
+class SessionSubagent final : public LiveSubagentSession
+{
+public:
+    explicit SessionSubagent(Session session) : m_session{ std::move(session) } {}
+
+    [[nodiscard]] std::string const& Id() const override { return m_session.Id(); }
+
+    SubagentTurnOutcome Run(std::string_view prompt) override
+    {
+        Session::PromptResult const result = m_session.Prompt(prompt);
+        return SubagentTurnOutcome{
+            .ok                 = result.ok,
+            .errorCode          = result.errorCode,
+            .content            = result.content,
+            .turnsUsed          = result.turnsUsed,
+            .stoppedAtTurnLimit = result.stoppedAtTurnLimit,
+        };
+    }
+
+    void GrantTurns(unsigned extraTurns) override { m_session.GrantTurns(extraTurns); }
+
+private:
+    Session m_session;
+};
+
+// Releases every live subagent session however the main session ends, because nothing else in the process owns
+// them: each one holds a conversation that never shrinks until it is released.
+class SubagentReleaser
+{
+public:
+    explicit SubagentReleaser(std::function<ReleaseSubagentSessionsFunction> release) : m_release{ std::move(release) } {}
+
+    SubagentReleaser(SubagentReleaser const&)            = delete;
+    SubagentReleaser& operator=(SubagentReleaser const&) = delete;
+
+    ~SubagentReleaser()
+    {
+        if (m_release)
+        {
+            // An empty id releases all of them.
+            m_release(std::string_view{});
+        }
+    }
+
+private:
+    std::function<ReleaseSubagentSessionsFunction> m_release;
 };
 
 std::string LoadWorkspaceInstructions()
@@ -145,8 +198,9 @@ SessionSettings ResolveSessionSettings(CommandLineOptions const& options)
     return settings;
 }
 
-// Builds the context that tools use. The factory captures the settings by value,
-// so no session ever refers back to this function's locals.
+// Builds the context that tools use. The factory captures the settings by value, so no session ever refers
+// back to this function's locals; the live subagent sessions live in a registry that the factory shares by
+// value and that the main session releases when it ends.
 ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
 {
     // Read out before `settings` is moved into the factory lambda below.
@@ -162,29 +216,55 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
     // git, so the guarded file system must refuse every write below it.
     fs.AddProtectedPath(std::filesystem::current_path() / VersionControlDirectoryName);
 
+    // The live subagent sessions of this main session. Both lambdas below share it through a std::shared_ptr, so
+    // the factory stays a value capture and no session ever refers back to a local of this function.
+    auto const subagents = std::make_shared<SubagentSessions>();
+
     return ToolsRuntimeContext{
-        .createNewSession = [settings = std::move(settings)](
+        .createNewSession = [settings = std::move(settings), subagents](
             ToolsRuntimeContext const&      context,
             std::string_view                parentSessionId,
             std::string_view                role,
             std::string_view                systemPrompt,
             std::span<ToolDefinition const> tools,
-            unsigned                        maxTurns
-        )
+            unsigned                        maxTurns,
+            std::optional<std::string_view> resumeSessionId,
+            std::string_view                prompt
+        ) -> std::expected<SubagentRunResult, SubagentError>
         {
-            return Session{Session::Config{
-                .endpointDescriptor = settings.endpoint,
-                .toolContext        = context,
-                .systemPrompt       = std::string(systemPrompt) + settings.commonSystemPrompt + BuildToolPromptFragments(tools)
-                                      + settings.workspaceInstructions,
-                .modelName          = settings.model,
-                .tools              = tools,
-                .maxTokens          = settings.maxTokens,
-                .maxTurns           = maxTurns,
-                .identity           = SessionIdentity{ .parentId{ parentSessionId }, .role{ role }, .tag = settings.sessionTag },
-                .sessionDirectory   = settings.sessionDirectory,
-                .record             = settings.record,
-            }};
+            // Only a call that starts a new subagent reaches this: a resume reuses the session the registry already
+            // holds, so it keeps the very same history, turn counter and record instead of starting a new one.
+            auto const makeSession = [&](unsigned const budget) -> std::unique_ptr<LiveSubagentSession>
+            {
+                return std::make_unique<SessionSubagent>(Session{Session::Config{
+                    .endpointDescriptor = settings.endpoint,
+                    .toolContext        = context,
+                    .systemPrompt       = std::string(systemPrompt) + settings.commonSystemPrompt + BuildToolPromptFragments(tools)
+                                          + settings.workspaceInstructions,
+                    .modelName          = settings.model,
+                    .tools              = tools,
+                    .maxTokens          = settings.maxTokens,
+                    .maxTurns           = budget,
+                    .identity           = SessionIdentity{ .parentId{ parentSessionId }, .role{ role }, .tag = settings.sessionTag },
+                    .sessionDirectory   = settings.sessionDirectory,
+                    .record             = settings.record,
+                }});
+            };
+
+            return subagents->Run(makeSession, parentSessionId, maxTurns, resumeSessionId, prompt, context.turnEpoch);
+        },
+        .releaseSubagentSessions = [subagents](std::string_view sessionId) -> std::size_t
+        {
+            // A tool releases one session by id; an empty id releases all of them, which is what the end of the main
+            // session asks for.
+            if (sessionId.empty())
+            {
+                std::size_t const live = subagents->LiveCount();
+                subagents->ReleaseAll();
+                return live;
+            }
+
+            return subagents->Release(sessionId) ? 1u : 0u;
         },
         .fs            = std::move(fs),
         .buildCommands = buildCommands,
@@ -193,6 +273,7 @@ ToolsRuntimeContext MakeToolsRuntimeContext(SessionSettings settings)
         // allowed: ".git" is protected by the guarded file system, and "build" is not protected at
         // all.
         .ignoredDirectories = { ".git", "build" },
+        .turnEpoch          = 0,
     };
 }
 
@@ -385,9 +466,16 @@ int Run(CommandLineOptions const& options)
                                      + BuildToolPromptFragments(MainTools) + settings.workspaceInstructions
                                      + DescribeRuntimeContext(settings);
 
+    // Built before the session so that this function keeps a handle on the subagent registry: the session takes its
+    // own copy, and the guard below releases every live subagent when this function returns, however it returns. The
+    // guard is declared before the session on purpose, so it is destroyed after it.
+    ToolsRuntimeContext toolContext = MakeToolsRuntimeContext(settings);
+
+    SubagentReleaser const releaseSubagents{ toolContext.releaseSubagentSessions };
+
     Session session{Session::Config{
         .endpointDescriptor = settings.endpoint,
-        .toolContext        = MakeToolsRuntimeContext(settings),
+        .toolContext        = std::move(toolContext),
         .systemPrompt       = systemPrompt,
         .modelName          = settings.model,
         .tools              = MainTools,

@@ -3,8 +3,11 @@
 #include "BuildCommand.h"
 #include "FileValidation.h"
 #include "JsonUtilities.h"
+#include "SubagentSessions.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -43,35 +46,46 @@ struct StringArrayToolParameter : ToolParameterBase
 
 using ToolParameter = std::variant<StringToolParameter, IntegerToolParameter, BoolToolParameter, StringArrayToolParameter>;
 
-// The turn budget handed to every subagent session started by `research` or `implement`.
-constexpr unsigned SubagentMaxTurns = 10;
-
-class Session;
 struct ToolDefinition;
 struct ToolsRuntimeContext;
 
-// The context is passed in explicitly so that a factory never has to capture the
-// context that owns it, which would leave a dangling reference inside every session.
-using CreateNewSessionFunction = Session(
+// Opens a subagent session, or resumes the live one named by `resumeSessionId`: the very same session, with the
+// same conversation history and the same record, granted `maxTurns` more turns on top of the budget it already
+// has. `role`, `systemPrompt` and `tools` only reach a session this call starts, because a resumed session keeps
+// its own. The context is passed in explicitly so that a factory never has to capture the context that owns it,
+// which would leave a dangling reference inside every session.
+using CreateNewSessionFunction = std::expected<SubagentRunResult, SubagentError>(
     ToolsRuntimeContext const&      ,
     std::string_view                parentSessionId,
     std::string_view                role,
     std::string_view                systemPrompt,
     std::span<ToolDefinition const> ,
-    unsigned                        maxTurns
+    unsigned                        maxTurns,
+    std::optional<std::string_view> resumeSessionId,
+    std::string_view                prompt
 );
+
+// Releases live subagent sessions and returns how many went away: the one named by `sessionId`, or every live one
+// when the id is empty. Each live session holds a conversation that never shrinks, so releasing is the only way
+// to give that memory back before the main session ends.
+using ReleaseSubagentSessionsFunction = std::size_t(std::string_view sessionId);
 
 struct ToolsRuntimeContext
 {
-    std::function<CreateNewSessionFunction> createNewSession;
-    ValidatedFileSystem                     fs;
+    std::function<CreateNewSessionFunction>        createNewSession;
+    std::function<ReleaseSubagentSessionsFunction> releaseSubagentSessions;
+    ValidatedFileSystem                            fs;
 
     // The build the workspace owners declared, if any. Tools that are only available when a
     // workspace declares a build must test this member before using it.
-    std::optional<BuildCommands>            buildCommands;
+    std::optional<BuildCommands>                   buildCommands;
 
     // Bare directory names that the search tools ignore below their root_dir, never at it.
-    std::vector<std::string>                ignoredDirectories{};
+    std::vector<std::string>                       ignoredDirectories{};
+
+    // The turn of the calling session that the current tool calls belong to, set by the session before it runs a
+    // turn's tools. It is what lets a subagent tool refuse two resumes of one subagent session in the same turn.
+    unsigned                                       turnEpoch = 0;
 };
 
 // At runtime, running a tool is done by calling a function with this signature.

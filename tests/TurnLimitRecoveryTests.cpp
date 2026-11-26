@@ -1,9 +1,12 @@
 #include "TurnLimitRecovery.h"
+#include "SubagentSessions.h"
 
 #include "TestUtilities.h"
 
+#include <cstddef>
 #include <print>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -90,6 +93,35 @@ int main()
     }
 
     std::println("All tests passed!");
+
+    std::println("the subagent turn allowances and refusals are unambiguous");
+    {
+        // A resume is only worth offering when it can add a turn the first call could not: the lifetime allowance has
+        // to be more than one call's budget, and at least one subagent must be allowed to stay live for a resume.
+        Expect(SubagentLifetimeMaxTurns > SubagentMaxTurns, "a subagent lifetime must allow more turns than one call");
+        Expect(SubagentMaxTurns > 0, "a subagent call must be granted at least one turn");
+        Expect(MaxLiveSubagentSessions > 0, "at least one subagent session must be allowed to stay live");
+
+        // The orchestrator tells these refusals apart from one another and from a stoppage at the turn limit, so
+        // each one has to be its own non-empty string and none may collide with the turn-limit error code.
+        std::vector<std::string_view> const codes{
+            UnknownSubagentSessionErrorCode,
+            SubagentSessionBusyErrorCode,
+            SubagentSessionLimitErrorCode,
+            SubagentTurnCapErrorCode,
+        };
+
+        for (std::size_t index = 0; index < codes.size(); ++index)
+        {
+            Expect(!codes[index].empty(), "every subagent refusal must have an error code");
+            Expect(codes[index] != TurnLimitErrorCode, "a refusal must not reuse the turn-limit error code");
+
+            for (std::size_t other = index + 1; other < codes.size(); ++other)
+            {
+                Expect(codes[index] != codes[other], "two subagent refusals must not share one error code");
+            }
+        }
+    }
 
     return 0;
 }

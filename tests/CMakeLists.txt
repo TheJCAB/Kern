@@ -210,3 +210,12 @@ target_include_directories(tool_definition_tests PRIVATE ../src)
 target_link_libraries(tool_definition_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME tool_definition_tests COMMAND tool_definition_tests)
+
+add_executable(subagent_session_tests
+    SubagentSessionTests.cpp
+)
+
+target_include_directories(subagent_session_tests PRIVATE ../src)
+target_link_libraries(subagent_session_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME subagent_session_tests COMMAND subagent_session_tests)

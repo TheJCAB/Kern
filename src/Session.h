@@ -55,6 +55,10 @@ public:
 
     PromptResult Prompt(std::string_view prompt);
 
+    // The id the session recorder assigned to this session: what a subagent is resumed and released by, and
+    // what names its transcript manifest.
+    [[nodiscard]] std::string const& Id() const;
+
     // Adds `extraTurns` on top of the configured turn budget, which is how a REPL user resumes a
     // session that ran out of turns. A session configured with no turn limit (maxTurns == 0) is
     // unaffected, and `extraTurns` of 0 does nothing.

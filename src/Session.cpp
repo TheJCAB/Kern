@@ -148,6 +148,10 @@ struct Session::Pimpl
 
                 ++m_currentTurn;
 
+                // A tool call runs on behalf of this turn, and the subagent tools use the number to refuse two
+                // resumes of one subagent session in the same turn.
+                m_toolContext.turnEpoch = m_currentTurn;
+
                 ChatTransport::Exchange const exchange = ChatTransport::SendStreamedChatRequest(m_endpointDescriptor, payload, m_log);
 
                 json assembledResponse{
@@ -424,3 +428,5 @@ Session::PromptResult Session::Prompt(std::string_view prompt)
 }
 
 void Session::GrantTurns(unsigned extraTurns) { m_pimpl->GrantTurns(extraTurns); }
+
+std::string const& Session::Id() const { return m_pimpl->m_id.id; }

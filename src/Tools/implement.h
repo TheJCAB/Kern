@@ -98,7 +98,17 @@ constexpr ToolDefinition Definition
                           "read and every note it took, so send only what changed since. Restarting a stopped "
                           "subagent throws that away. Each live subagent session costs memory that is never freed "
                           "on its own, so at most 8 may be live: release the ones you have finished with by passing "
-                          "their `sessionId` together with `release`.",
+                          "their `sessionId` together with `release`. `turns` caps how many turns a session may "
+                          "ever be granted over its whole lifetime and is no prediction of what it will use, so "
+                          "grant what the task needs rather than the maximum: a session already granted 60 turns "
+                          "in total refuses every further resume with `turn_cap` and must be replaced by a new one. "
+                          "A `complete` session can be resumed as well, and because it still holds what it has "
+                          "already read, resuming one is the cheapest way to ask a related follow-up question "
+                          "about the same files, but `release` is irreversible and acts on complete sessions too, "
+                          "so release only once no further question is possible. Ask one atomic question per "
+                          "delegation and demand a bounded report of a line or two, with no restating of the "
+                          "prompt and no recap of earlier findings, because a prompt that merely says please "
+                          "answer produces long essays that cost context without adding information.",
 };
 
 }

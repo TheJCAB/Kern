@@ -384,9 +384,11 @@ json GrepTool(json const& arguments, ToolsRuntimeContext const& context, std::st
 constexpr ToolParameter GrepToolParameters[] =
 {
     StringToolParameter{ "pattern"     , "The regular expression to search for, in egrep format." },
-    StringToolParameter{ "glob_pattern", "The glob pattern of the files to search, relative to root_dir. "
-                                         "Supports '*', '?' within one path segment and '**' across segments. "
-                                         "Braces and character classes are not supported." },
+    StringToolParameter{ "glob_pattern", "The glob pattern of the files to search, relative to root_dir; it uses the "
+                                         "same syntax and restrictions as the glob tool, with '**' only as a whole "
+                                         "segment. Braces and character classes are unsupported: '{cpp|h}' fails with "
+                                         "'unsupported_pattern', so use one call per pattern: '**/*.cpp', '**/*.h'. "
+                                         "Matching is case-sensitive." },
 };
 
 constexpr ToolParameter GrepToolOptionalParameters[] =
@@ -406,7 +408,11 @@ constexpr ToolDefinition grep
 {
     .name               = "grep",
     .description        = "Search for lines matching a regular expression (egrep format) in the files matched by "
-                          "glob_pattern. Matching is case-insensitive unless case_sensitive is true. Set "
+                          "glob_pattern. Backslash escapes such as \\b, \\d, \\w and \\s are not supported and a "
+                          "pattern that uses one fails with a regex error; write [[:space:]], [[:digit:]] or "
+                          "[[:alpha:]] style POSIX classes, [0-9], or plain character classes instead. glob_pattern "
+                          "uses the glob tool's syntax and likewise rejects braces and character classes. Matching is "
+                          "case-insensitive unless case_sensitive is true. Set "
                           "files_with_matches to get only the files that contain matches, each with its match count "
                           "and no lines; max_lines_per_file (1-50, default 50) reduces the number of matching lines "
                           "returned per file. root_dir defaults to '.', the process working directory. The build "

@@ -6,3 +6,5 @@ If you have a `build` tool, use it to check that your edits are correct. If you 
 `build` takes no arguments and its command is fixed by the owners of this workspace: never try to change or extend it, never write to `Kern.build.json`, and do not build after every edit. Call it once after a coherent set of changes, then fix what it reports.
 Write code that is correct on the first attempt: respect the project's warning-as-error build, keep edits minimal and surgical, and do not reformat or touch unrelated code.
 A final answer must be a compact structured summary, not an echo of the work: each file you changed with a one-line reason, any deviation from the instructions, whether you built and what the build reported, and anything you could not verify. Nothing else.
+
+When you resume work in a session, everything already read earlier in that session is still available and must not be re-read, and your edits must follow the conventions of the surrounding file rather than introducing a new style into it.

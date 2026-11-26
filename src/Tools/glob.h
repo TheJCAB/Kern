@@ -157,10 +157,11 @@ inline json GlobTool(json const& arguments, ToolsRuntimeContext const& context, 
 
 constexpr ToolParameter GlobToolParameters[] =
 {
-    StringToolParameter{ "pattern", "The glob pattern of the files to match, relative to root_dir. "
-                                    "Supports '*', '?' within one path segment and '**' across segments. "
-                                    "Braces and character classes are not supported. "
-                                    "A leading '/' is accepted and means the same as writing the pattern without it." },
+    StringToolParameter{ "pattern", "The glob pattern of the files to match, relative to root_dir. '*', '?' match in one "
+                                    "path segment and never cross '/'; '**' only as a whole segment. Braces and character "
+                                    "classes are unsupported: '{cpp,h}', '{cpp|h}', '[ch]' fail with 'unsupported_pattern', "
+                                    "so use one call per pattern, e.g. '**/*.cpp' then '**/*.h'. Matching is case-sensitive; "
+                                    "a leading '/' is accepted and means the same as writing the pattern without it." },
 };
 
 constexpr ToolParameter GlobToolOptionalParameters[] =
@@ -174,7 +175,9 @@ constexpr ToolDefinition glob
 {
     .name               = "glob",
     .description        = "Find files matching a glob pattern under a directory. '*' and '?' match within one path segment, "
-                          "'**' matches any number of segments; braces and character classes are not supported. "
+                          "'**' matches any number of segments but only as a whole segment. Braces and "
+                          "character classes are not supported, so several extensions need one call per pattern, "
+                          "e.g. '**/*.cpp' then '**/*.h', not '*.{cpp|h}' or '[ch]'. Matching is case-sensitive. "
                           "The pattern is matched from root_dir directly, so write '**/x' to search the whole tree. "
                           "A leading '/' is accepted and changes nothing. root_dir defaults to '.', the process working "
                           "directory, which is not necessarily the workspace root. The build directory and .git are ignored "

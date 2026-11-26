@@ -18,8 +18,6 @@ namespace
 
 constexpr char const* KnownBuildCommandKeys[] = { "command", "arguments", "workingDirectory", "timeoutSeconds", "platforms" };
 
-constexpr char const* KnownBuildKeys[] = { "command", "arguments", "workingDirectory", "timeoutSeconds", "commands" };
-
 // A command exactly as one entry of the declaration described it, with the platforms it named
 // kept so that the selection can be made before anything runs.
 struct DeclaredBuildCommand
@@ -203,31 +201,13 @@ BuildCommands ParseBuildConfiguration(std::string_view const jsonText, std::file
         throw std::runtime_error("'build' must be an object");
     }
 
-    json const& build = *buildIt;
-
-    for (auto const& [key, value] : build.items())
-    {
-        bool const known = std::ranges::any_of(KnownBuildKeys, [&key](char const* candidate)
-        {
-            return key == candidate;
-        });
-        if (!known)
-        {
-            throw std::runtime_error(std::format("Unknown key '{}' in 'build'", key));
-        }
-    }
-
-    auto const commandsIt = build.find("commands");
-
     // Commands are collected exactly as declared, then filtered, so that the declaration order
     // survives the selection.
     std::vector<DeclaredBuildCommand> declared;
 
-    if (commandsIt == build.end() || commandsIt->is_null())
-    {
-        declared.push_back(ParseBuildCommand(build, workspaceRoot));
-    }
-    else
+    json const& build = *buildIt;
+
+    if (auto const commandsIt = build.find("commands"); commandsIt != build.end())
     {
         if (build.size() != 1)
         {
@@ -255,6 +235,10 @@ BuildCommands ParseBuildConfiguration(std::string_view const jsonText, std::file
             declared.push_back(ParseBuildCommand(element, workspaceRoot));
         }
     }
+    else
+    {
+        declared.push_back(ParseBuildCommand(build, workspaceRoot));
+    }
 
     BuildCommands selected;
     for (DeclaredBuildCommand const& command : declared)
@@ -263,13 +247,6 @@ BuildCommands ParseBuildConfiguration(std::string_view const jsonText, std::file
         {
             selected.push_back(command.command);
         }
-    }
-
-    // The build tool exists whenever any command is declared, so a selection that leaves nothing
-    // would leave it silently doing nothing: that is an invalid declaration, not an empty build.
-    if (selected.empty())
-    {
-        throw std::runtime_error(std::format("The build declaration selects no command for platform '{}'", hostPlatform));
     }
 
     return selected;
@@ -287,7 +264,12 @@ std::optional<BuildCommands> LoadBuildConfiguration(std::filesystem::path const&
 
     try
     {
-        return ParseBuildConfiguration(RawReadTextFile(path), workspaceRoot, hostPlatform);
+        auto result = ParseBuildConfiguration(RawReadTextFile(path), workspaceRoot, hostPlatform);
+        if (result.empty())
+        {
+            return std::nullopt;
+        }
+        return std::move(result);
     }
     catch (std::exception const& e)
     {

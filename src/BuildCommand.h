@@ -57,4 +57,5 @@ std::optional<BuildCommands> LoadBuildConfiguration(std::filesystem::path const&
 // either names a single 'command' or a non-empty 'commands' array, and a command's optional
 // 'platforms' array selects which of them apply to `hostPlatform`. The result holds only the
 // selected commands, in declaration order, and throwing beats returning none of them.
+// Returns empty when no commands are selected for `hostPlatform`.
 BuildCommands ParseBuildConfiguration(std::string_view jsonText, std::filesystem::path const& workspaceRoot, std::string_view hostPlatform = CurrentPlatform());

@@ -168,7 +168,7 @@ int main()
         Expect(commands.front().arguments.empty(), "the single command declaration must have no arguments");
         Expect(commands.front().timeout == DefaultBuildTimeout, "the single command declaration must use the default timeout");
         Expect(!commands.front().declaredWorkingDirectory, "the single command declaration must not declare a working directory");
-        Expect(Throws([&] { (void)ParseBuildConfiguration(R"({"build":{"command":"cmake","platforms":["Linux"]}})", workspace, "Windows"); }), "a single command selected for another platform must be rejected because no command remains");
+        Expect(ParseBuildConfiguration(R"({"build":{"command":"cmake","platforms":["Linux"]}})", workspace, "Windows").empty(), "a single command selected for another platform is not rejected even though no command remains");
     }
 
     std::println("Test Platform Rejections");
@@ -184,11 +184,10 @@ int main()
 
     std::println("Test Platform Empty Selection");
     {
-        Expect(ThrowsContaining([&] { (void)ParseBuildConfiguration(R"({"build":{"command":"cmake","platforms":["Windows"]}})", workspace, "Linux"); }, "Linux"), "an empty selection must be rejected with a message that names the host platform");
+        Expect(ParseBuildConfiguration(R"({"build":{"command":"cmake","platforms":["Windows"]}})", workspace, "Linux").empty(), "an empty selection must result in an empty vector");
 
         RawWriteTextFile(workspace / BuildConfigurationFileName, R"({"build":{"command":"cmake","platforms":["Windows"]}})");
-        Expect(ThrowsContaining([&] { (void)LoadBuildConfiguration(workspace, "Linux"); }, "Linux"), "loading an empty selection must be rejected with a message that names the host platform");
-        Expect(ThrowsContaining([&] { (void)LoadBuildConfiguration(workspace, "Linux"); }, BuildConfigurationFileName), "loading an empty selection must be rejected with a message that names the declaration file");
+        Expect(!LoadBuildConfiguration(workspace, "Linux").has_value(), "loading an empty selection is equivalent to having no file");
         fs::remove(workspace / BuildConfigurationFileName);
     }
     ExpectEqual(ParseBuildConfiguration(R"({"build":{"commands":[{"command":"a"},{"command":"a"},{"command":"a"},{"command":"a"},{"command":"a"},{"command":"a"},{"command":"a"},{"command":"a"}]}})", workspace).size(), 8u, "all the commands must be accepted");

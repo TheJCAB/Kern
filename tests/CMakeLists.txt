@@ -186,3 +186,27 @@ target_include_directories(note_tool_tests PRIVATE ../src)
 target_link_libraries(note_tool_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
 
 add_test(NAME note_tool_tests COMMAND note_tool_tests)
+
+add_executable(prompt_assembly_tests
+    PromptAssemblyTests.cpp
+    ../src/ToolUtilities.cpp
+)
+
+target_include_directories(prompt_assembly_tests PRIVATE ../src)
+target_link_libraries(prompt_assembly_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME prompt_assembly_tests COMMAND prompt_assembly_tests)
+
+add_executable(tool_definition_tests
+    ToolDefinitionTests.cpp
+    ../src/ToolUtilities.cpp
+    ../src/FileUtilities.cpp
+    ../src/FileValidation.cpp
+    ../src/StringUtilities.cpp
+    ../src/RunProcess.cpp
+)
+
+target_include_directories(tool_definition_tests PRIVATE ../src)
+target_link_libraries(tool_definition_tests PRIVATE TestUtilities nlohmann_json::nlohmann_json)
+
+add_test(NAME tool_definition_tests COMMAND tool_definition_tests)

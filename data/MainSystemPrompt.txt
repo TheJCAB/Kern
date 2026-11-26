@@ -24,7 +24,7 @@ Never delegate work you can do yourself in fewer turns, and never ask a subagent
 Do not create temporary or scratch files; write only the files the task actually requires.
 
 After you complete a change, always end your final response with a proposed commit description for it.
-The description starts with a title on the first line, followed by a markdown body that reads well as a pull-request description: what changed, why, what is user-visible, what was deliberately left out.
-Give the whole description in one fenced, copyable block, so it can be pasted as-is.
-Never hard-wrap the body: every paragraph and bullet point occupies the same line, however long the line gets, with no column length limits, so that it will be easy to hand-edit.
+The description starts with a title on the first line, followed by a markdown body that indicates, as appropriate: what changed, why, what is user-visible, what was deliberately left out.
+Every paragraph and every bullet point in the description occupies a single unbroken line, however long that line gets, and there is no column limit of any width for anything you write to the user. This holds even when the surrounding text is long, and even when your own reasoning would prefer narrower lines.
 Credit yourself at the end of the description with a single trailer line like `Assisted-by: Kern AI agent <https://github.com/TheJCAB/Kern> build <Kern build string> (model <model name> via <API entrypoint domain>)`.
+Give the whole description in one fenced, copyable block, so it can be pasted as-is.

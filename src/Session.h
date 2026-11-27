@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Endpoint.h"
+#include "Conversation.h"
 #include "SessionRecorder.h"
 #include "ToolUtilities.h"
 
@@ -53,7 +54,7 @@ public:
     Session(Session&&);
     Session& operator=(Session&&);
 
-    PromptResult Prompt(std::string_view prompt);
+    PromptResult Prompt(std::string_view prompt, std::span<PromptFile const> promptFiles = {});
 
     // The id the session recorder assigned to this session: what a subagent is resumed and released by, and
     // what names its transcript manifest.

@@ -14,7 +14,7 @@
 inline constexpr std::string_view KernBuildId = __DATE__ " " __TIME__;
 
 // Version of the transcript layout written by SessionRecorder; bumped when the manifest keys change.
-inline constexpr int SessionTranscriptSchemaVersion = 1;
+inline constexpr int SessionTranscriptSchemaVersion = 2;
 
 // What produced the session: build, model, decoding parameters, endpoint and caps.
 struct SessionProvenance
@@ -33,6 +33,7 @@ struct SessionInputs
     std::string systemPrompt{};                  // Stored in full; no hashes are written.
     json        toolDefinitions{ json::array() };
     std::string userPrompt{};
+    json        promptFiles{ json::array() };
 };
 
 // Writes two artifacts per session into one directory: <id>_session.json (the manifest, rewritten at
@@ -53,7 +54,7 @@ public:
 
     // Writes the manifest for the first time with "complete": false and no outcome. A second call is
     // ignored, so only the first user prompt and turn budget are recorded.
-    void BeginSession(unsigned maxTurns, std::string_view userPrompt);
+    void BeginSession(unsigned maxTurns, std::string_view userPrompt, json promptFiles = json::array());
 
     // Appends one line to the jsonl file; usage counters are normalised onto the line before it is written.
     void RecordTurn(json const& turn);

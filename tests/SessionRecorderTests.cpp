@@ -77,17 +77,26 @@ int main()
         Expect(recorder.ManifestPath() == manifest, "manifest path is derived from the id");
         Expect(!std::filesystem::exists(manifest), "the constructor does no I/O");
 
-        recorder.BeginSession(7, "do the thing");
+        json promptFiles = json::array();
+        promptFiles.push_back(json{
+            { "filename", "notes.txt" },
+            { "content", "remember this" },
+        });
+        recorder.BeginSession(7, "do the thing", promptFiles);
         Expect(recorder.Enabled(), "a successful write keeps the recorder enabled");
         Expect(std::filesystem::exists(manifest), "BeginSession writes the manifest");
 
         auto const parsed = ReadManifest(manifest);
-        ExpectEqual(parsed.at("schemaVersion").get<int>(), 1, "schema version");
+        ExpectEqual(parsed.at("schemaVersion").get<int>(), 2, "schema version");
         Expect(parsed.at("complete").get<bool>() == false, "the manifest starts incomplete");
         ExpectEqual(parsed.at("identity").at("id").get<std::string>(), std::string("abc123"), "identity id");
         ExpectEqual(parsed.at("provenance").at("model").get<std::string>(), std::string("test-model"), "model name");
         ExpectEqual(parsed.at("provenance").at("maxTurns").get<unsigned>(), 7u, "max turns");
         ExpectEqual(parsed.at("inputs").at("userPrompt").get<std::string>(), std::string("do the thing"), "user prompt");
+        ExpectEqual(parsed.at("inputs").at("promptFiles").at(0).at("filename").get<std::string>(),
+            std::string("notes.txt"), "prompt file filename");
+        ExpectEqual(parsed.at("inputs").at("promptFiles").at(0).at("content").get<std::string>(),
+            std::string("remember this"), "prompt file content");
         ExpectEqual(parsed.at("inputs").at("systemPrompt").get<std::string>(), MakeInputs().systemPrompt, "system prompt");
         Expect(parsed.contains("outcome"), "outcome is always present");
         Expect(parsed.at("outcome").is_object() && parsed.at("outcome").empty(), "the initial outcome is empty");
@@ -179,7 +188,7 @@ int main()
         Expect(parsed.at("complete").get<bool>() == true, "the manifest is complete");
         Expect(parsed.at("outcome").at("ok").get<bool>() == true, "the outcome is recorded");
         ExpectEqual(parsed.at("outcome").at("turnsUsed").get<int>(), 2, "the whole outcome object is preserved");
-        ExpectEqual(parsed.at("schemaVersion").get<int>(), 1, "the schema version is preserved");
+        ExpectEqual(parsed.at("schemaVersion").get<int>(), 2, "the schema version is preserved");
         ExpectEqual(parsed.at("identity").at("id").get<std::string>(), std::string("abc123"), "the identity is preserved");
         ExpectEqual(parsed.at("provenance").at("model").get<std::string>(), std::string("test-model"), "the model is preserved");
         ExpectEqual(parsed.at("provenance").at("maxTurns").get<unsigned>(), 7u, "the turn budget is preserved");

@@ -195,8 +195,17 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
         }
         else if (argument == "--prompt-file")
         {
-            RejectDuplicate(options.promptFile.has_value(), "--prompt-file");
-            options.promptFile = std::string(NextArgument(arguments, i, "--prompt-file"));
+            std::filesystem::path file{ std::string(NextArgument(arguments, i, "--prompt-file")) };
+            std::error_code error;
+            if (!std::filesystem::exists(file, error))
+            {
+                throw UsageError{ std::format("--prompt-file {} doesn't exist", file.string()) };
+            }
+            if (!std::filesystem::is_regular_file(file))
+            {
+                throw UsageError{ std::format("--prompt-file {} is not a file", file.string()) };
+            }
+            options.promptFiles.push_back(std::move(file));
         }
         else if (argument == "--")
         {
@@ -217,10 +226,6 @@ CommandLineOptions ParseCommandLine(std::span<std::string_view const> arguments)
         }
     }
 
-    if (options.promptFile.has_value() && !options.prompt.empty())
-    {
-        throw UsageError{"--prompt-file and a prompt on the command line may not be combined"};
-    }
     return options;
 }
 
@@ -240,6 +245,6 @@ void PrintUsage(std::FILE* stream)
     std::print(stream, "  --session-dir PATH write transcripts to PATH instead of the default log directory\n");
     std::print(stream, "  --session-tag TEXT label recorded runs with TEXT, e.g. tool-schema-v3\n");
     std::print(stream, "  --                 treat all remaining arguments as part of PROMPT\n");
-    std::print(stream, "  --prompt-file PATH read the initial prompt from PATH; the file may hold any UTF-8 text and several lines\n");
+    std::print(stream, "  --prompt-file PATH read or attach a prompt file; may be repeated, and its UTF-8 text may span several lines\n");
     std::print(stream, "  PROMPT             optional; without it (or with an empty one) kern goes straight to the interactive prompt\n");
 }

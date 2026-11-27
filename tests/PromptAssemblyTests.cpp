@@ -1,3 +1,4 @@
+#include "Conversation.h"
 #include "ToolUtilities.h"
 
 #include "TestUtilities.h"
@@ -104,6 +105,46 @@ constexpr ToolDefinition BaseTools[]{ BareFirstTool, BareSecondTool };
 
 int main()
 {
+    std::println("the prompt and prompt files are combined into one user conversation message");
+    {
+        PromptFile files[]{
+            { .filename = "notes.txt", .content = "remember this" },
+            { .filename = "data.md", .content = "# data" },
+        };
+        ConversationMessage const message = MakePromptMessage("do the thing", files);
+
+        ExpectEqual(message.role, std::string{ "user" }, "prompt files must be carried in a user message");
+        Expect(message.content.starts_with("do the thing\n\nPrompt files:\n"),
+            "the combined message must keep the prompt before the prompt-file JSON");
+
+        std::string_view const jsonText = std::string_view{ message.content }.substr(
+            std::string_view{ "do the thing\n\nPrompt files:\n" }.size());
+        json const promptFiles = json::parse(jsonText);
+        Expect(promptFiles.is_array(), "prompt files must be represented as a JSON list");
+        ExpectEqual(promptFiles.size(), std::size_t{ 2 }, "every prompt file must appear once");
+        ExpectEqual(promptFiles.at(0).at("filename").get<std::string>(), std::string{ "notes.txt" },
+            "a prompt file must retain its filename");
+        ExpectEqual(promptFiles.at(0).at("content").get<std::string>(), std::string{ "remember this" },
+            "a prompt file must retain its content");
+        ExpectEqual(promptFiles.at(1).at("filename").get<std::string>(), std::string{ "data.md" },
+            "every filename must round-trip");
+        ExpectEqual(promptFiles.at(1).at("content").get<std::string>(), std::string{ "# data" },
+            "every content value must round-trip");
+
+        ConversationMessage history[]{
+            message,
+        };
+        json const payload = BuildChatPayload(history, {}, {});
+        Expect(!payload.contains("prompt_files"),
+            "prompt_files must not be emitted as a non-standard top-level request property");
+        ExpectEqual(payload.at("messages").size(), std::size_t{ 1 },
+            "the prompt and prompt files must remain in one messages entry");
+        ExpectEqual(payload.at("messages").at(0).at("role").get<std::string>(), std::string{ "user" },
+            "the prompt-file payload message must remain a user message");
+        Expect(payload.at("messages").at(0).at("content").get<std::string>().find("notes.txt") != std::string::npos,
+            "the chat payload must contain the prompt-file filename");
+    }
+
     std::println("a tool definition nests name, description and parameters under the function key");
     {
         json const definitions = BuildPayloadToolDefinitions(PayloadTools);

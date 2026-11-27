@@ -37,7 +37,7 @@ std::filesystem::path const& SessionRecorder::ManifestPath() const
     return m_manifestPath;
 }
 
-void SessionRecorder::BeginSession(unsigned const maxTurns, std::string_view const userPrompt)
+void SessionRecorder::BeginSession(unsigned const maxTurns, std::string_view const userPrompt, json promptFiles)
 {
     if (!m_enabled || m_started)
     {
@@ -47,6 +47,7 @@ void SessionRecorder::BeginSession(unsigned const maxTurns, std::string_view con
     m_started              = true;
     m_provenance.maxTurns  = maxTurns;
     m_inputs.userPrompt    = std::string(userPrompt);
+    m_inputs.promptFiles   = std::move(promptFiles);
     WriteManifest(false, json::object());
 }
 
@@ -138,6 +139,7 @@ bool SessionRecorder::WriteManifest(bool const complete, json const& outcome)
         inputs["systemPrompt"]    = m_inputs.systemPrompt;
         inputs["toolDefinitions"] = m_inputs.toolDefinitions;
         inputs["userPrompt"]      = m_inputs.userPrompt;
+        inputs["promptFiles"]     = m_inputs.promptFiles;
 
         json manifest = json::object();
         manifest["schemaVersion"] = SessionTranscriptSchemaVersion;

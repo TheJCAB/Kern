@@ -83,7 +83,7 @@ A long or multi-line prompt, including one that contains non-ASCII text, is easi
 ./build/Release/kern --prompt-file notes.md
 ```
 
-Kern reads the file verbatim as the first prompt, newlines included, so the model sees a multi-line prompt, and then continues in the REPL as usual. A leading UTF-8 byte order mark is dropped so that files saved by Windows editors work. `--prompt-file` and a prompt argument on the command line cannot be combined, and an unreadable file aborts the run with an error.
+Kern reads the file verbatim as the first prompt, newlines included, so the model sees a multi-line prompt, and then continues in the REPL as usual. A leading UTF-8 byte order mark is dropped so that files saved by Windows editors work. The option may be repeated: if no prompt argument is given, the first file supplies the prompt and the remaining files are supplied to the model in the same standard user conversation message as named JSON prompt files; if a prompt argument is given, the prompt and every prompt file are combined into one user conversation message. An unreadable file aborts the run with an error.
 
 ## Install
 

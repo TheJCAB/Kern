@@ -189,6 +189,7 @@ add_test(NAME note_tool_tests COMMAND note_tool_tests)
 
 add_executable(prompt_assembly_tests
     PromptAssemblyTests.cpp
+    ../src/Conversation.cpp
     ../src/ToolUtilities.cpp
 )
 

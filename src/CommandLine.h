@@ -31,19 +31,19 @@ constexpr unsigned DefaultMaxTurns = 50;
 
 struct CommandLineOptions
 {
-    CommandLineAction             action = CommandLineAction::run;
-    std::string                   serviceName{};
-    std::string                   endpointUrl{};
-    std::optional<std::uint32_t>  port{};
-    std::optional<std::string>    model{};
-    std::optional<LogLevel>       logLevel{};
-    unsigned                      maxTurns = DefaultMaxTurns;
-    std::string                   prompt{};
-    std::optional<std::filesystem::path> promptFile{}; // read the initial prompt from this file; the text is used verbatim, so it may be multi-line UTF-8
-    bool                          record = true;      // write a session manifest and turn file for every run; --record off disables it
-    bool                          keepAwake = true;   // ask the operating system not to suspend while a prompt interacts with the model; --keep-awake off disables it
-    std::filesystem::path         sessionDirectory{}; // where transcripts go; empty means the logs/ directory beside the executable
-    std::string                   sessionTag{};       // free-form label recorded in the manifest and used to select runs, e.g. tool-schema-v3
+    CommandLineAction                  action = CommandLineAction::run;
+    std::string                        serviceName{};
+    std::string                        endpointUrl{};
+    std::optional<std::uint32_t>       port{};
+    std::optional<std::string>         model{};
+    std::optional<LogLevel>            logLevel{};
+    unsigned                           maxTurns = DefaultMaxTurns;
+    std::string                        prompt{};
+    std::vector<std::filesystem::path> promptFiles{};      // Files supplied with the prompt; the first one becomes the main prompt if no prompt is given; the text is used verbatim, so it may be multi-line UTF-8
+    bool                               record = true;      // write a session manifest and turn file for every run; --record off disables it
+    bool                               keepAwake = true;   // ask the operating system not to suspend while a prompt interacts with the model; --keep-awake off disables it
+    std::filesystem::path              sessionDirectory{}; // where transcripts go; empty means the logs/ directory beside the executable
+    std::string                        sessionTag{};       // free-form label recorded in the manifest and used to select runs, e.g. tool-schema-v3
 };
 
 // Throws UsageError for unknown options, missing option values, malformed

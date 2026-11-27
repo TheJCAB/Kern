@@ -90,3 +90,31 @@ json BuildChatPayload(std::span<ConversationMessage const> const history,
     }
     return result;
 }
+
+json BuildPromptFilesJson(std::span<PromptFile const> promptFiles)
+{
+    json::array_t result;
+    result.reserve(promptFiles.size());
+    for (PromptFile const& promptFile : promptFiles)
+    {
+        result.push_back(json{
+            { "filename", promptFile.filename },
+            { "content", promptFile.content },
+        });
+    }
+    return result;
+}
+
+ConversationMessage MakePromptMessage(std::string_view prompt, std::span<PromptFile const> promptFiles)
+{
+    std::string content{ prompt };
+    if (!promptFiles.empty())
+    {
+        content += "\n\nPrompt files:\n";
+        content += BuildPromptFilesJson(promptFiles).dump(2);
+    }
+    return ConversationMessage{
+        .role = "user",
+        .content = std::move(content),
+    };
+}

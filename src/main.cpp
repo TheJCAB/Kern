@@ -486,7 +486,23 @@ int Run(CommandLineOptions const& options)
         .record             = settings.record,
     }};
 
-    std::string const initialPrompt = options.promptFile ? ReadPromptFile(*options.promptFile) : options.prompt;
+    std::string initialPrompt = options.prompt;
+    std::span<std::filesystem::path const> promptFilePaths = options.promptFiles;
+    if (initialPrompt.empty() && !promptFilePaths.empty())
+    {
+        initialPrompt = ReadPromptFile(promptFilePaths.front());
+        promptFilePaths = promptFilePaths.subspan(1);
+    }
+
+    std::vector<PromptFile> promptFiles;
+    promptFiles.reserve(promptFilePaths.size());
+    for (std::filesystem::path const& path : promptFilePaths)
+    {
+        promptFiles.push_back(PromptFile{
+            .filename = path.string(),
+            .content = ReadPromptFile(path),
+        });
+    }
     std::string prompt = initialPrompt;
 
     // A prompt given on the command line or in a prompt file is never a command, however it starts.
@@ -586,7 +602,8 @@ int Run(CommandLineOptions const& options)
                 keepAwake.emplace();
                 Log(LogLevel::debug, "keep-awake: {}", keepAwake->IsActive() ? "engaged" : "unavailable");
             }
-            result = session.Prompt(command.text);
+                std::vector<PromptFile> promptFilesForCall = std::move(promptFiles);
+                result = session.Prompt(command.text, promptFilesForCall);
         }
         catch (std::exception const& error)
         {

@@ -5,6 +5,7 @@
 
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <print>
 #include <stdexcept>
@@ -167,21 +168,36 @@ int main()
 
     std::println("Test PromptFile");
     {
-        auto const promptFile = Parse({ "--prompt-file", "notes.txt" });
-        Expect(promptFile.promptFile.has_value(), "--prompt-file sets the prompt file");
-        Expect(*promptFile.promptFile == std::filesystem::path{"notes.txt"}, "--prompt-file keeps the path");
-        Expect(promptFile.prompt.empty(), "--prompt-file leaves the prompt empty");
+        std::filesystem::path const temp = CreateTempDirectory("kern-command-line-prompt-files");
+        std::filesystem::path const notes = temp / "notes.txt";
+        std::filesystem::path const extra = temp / "extra.txt";
+        std::ofstream{ notes } << "notes";
+        std::ofstream{ extra } << "extra";
 
-        auto const withModel = Parse({ "--prompt-file", "notes.txt", "--model", "m" });
-        Expect(*withModel.promptFile == std::filesystem::path{"notes.txt"}, "--prompt-file with --model keeps the path");
+        std::string const notesText = notes.string();
+        std::string const extraText = extra.string();
+
+        auto const promptFiles = Parse({ "--prompt-file", notesText });
+        Expect(promptFiles.promptFiles.size() == 1, "--prompt-file sets one prompt file");
+        Expect(promptFiles.promptFiles.front() == notes, "--prompt-file keeps the path");
+        Expect(promptFiles.prompt.empty(), "--prompt-file leaves the prompt empty");
+
+        auto const withModel = Parse({ "--prompt-file", notesText, "--model", "m" });
+        Expect(withModel.promptFiles.front() == notes, "--prompt-file with --model keeps the path");
         Expect(withModel.model.has_value(), "--prompt-file with --model sets the model");
         ExpectEqual(withModel.model.value_or(""), "m", "--prompt-file with --model keeps the model value");
 
-        Expect(!Parse({ "hi" }).promptFile.has_value(), "the prompt file is empty by default");
+        auto const repeated = Parse({ "--prompt-file", notesText, "--prompt-file", extraText, "hi" });
+        Expect(repeated.promptFiles.size() == 2, "multiple --prompt-file options are kept");
+        Expect(repeated.promptFiles.at(0) == notes, "the first repeated prompt file is kept");
+        Expect(repeated.promptFiles.at(1) == extra, "the second repeated prompt file is kept");
+        ExpectEqual(repeated.prompt, std::string{"hi"}, "a prompt and prompt files may be combined");
+
+        Expect(Parse({ "hi" }).promptFiles.empty(), "the prompt file list is empty by default");
 
         Expect(ThrowsUsageError([&] { Parse({ "--prompt-file" }); }), "--prompt-file without a value");
-        Expect(ThrowsUsageError([&] { Parse({ "--prompt-file", "a", "--prompt-file", "b" }); }), "duplicate --prompt-file");
-        Expect(ThrowsUsageError([&] { Parse({ "--prompt-file", "a", "some prompt" }); }), "--prompt-file combined with a prompt");
+        Expect(ThrowsUsageError([&] { Parse({ "--prompt-file", "missing-kern-prompt-file.txt" }); }),
+            "a missing --prompt-file");
     }
 
     std::println("Test UsageErrors");
@@ -205,12 +221,12 @@ int main()
         auto const noArguments = Parse({});
         Expect(noArguments.prompt.empty(), "an absent prompt is allowed");
         Expect(noArguments.action == CommandLineAction::run, "no arguments means the run action");
-        Expect(!noArguments.promptFile.has_value(), "no arguments leaves the prompt file empty");
+        Expect(noArguments.promptFiles.empty(), "no arguments leaves the prompt file list empty");
 
         auto const afterDoubleDash = Parse({ "--" });
         Expect(afterDoubleDash.prompt.empty(), "an absent prompt after -- is allowed");
         Expect(afterDoubleDash.action == CommandLineAction::run, "-- alone does not change the action");
-        Expect(!afterDoubleDash.promptFile.has_value(), "-- alone leaves the prompt file empty");
+        Expect(afterDoubleDash.promptFiles.empty(), "-- alone leaves the prompt file list empty");
         Expect(Throws([&] { Parse({ "--log-level", "bogus", "hi" }); }), "invalid --log-level");
     }
 

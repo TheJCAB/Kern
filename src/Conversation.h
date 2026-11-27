@@ -6,7 +6,12 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <span>
+
+struct PromptFile
+{
+    std::string filename;
+    std::string content;
+};
 
 // One entry of the conversation as the model sees it: a role, its text, and either the id of the tool call this
 // message answers or the tool calls this message requests.
@@ -32,6 +37,9 @@ struct ChatPayloadOptions
     std::span<ToolDefinition const> tools    {};
     unsigned                        maxTokens = 0; // 0 = send no limit
 };
+
+json BuildPromptFilesJson(std::span<PromptFile const> promptFiles);
+ConversationMessage MakePromptMessage(std::string_view prompt, std::span<PromptFile const> promptFiles);
 
 // Builds the request body: `history` followed by `transientMessages`, which are shown to the model for this
 // request only and never become part of the conversation.

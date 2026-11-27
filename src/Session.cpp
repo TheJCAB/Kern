@@ -96,7 +96,7 @@ struct Session::Pimpl
         std::println("log id: {}", m_log.Id());
     }
 
-    PromptResult RunPrompt(std::string_view prompt)
+    PromptResult RunPrompt(std::string_view prompt, std::span<PromptFile const> promptFiles)
     {
         if (prompt.empty())
         {
@@ -104,8 +104,12 @@ struct Session::Pimpl
         }
 
         std::println("===============================\n[{}]\nPrompt: {}", m_log.Id(), prompt);
+        for (PromptFile const& promptFile : promptFiles)
+        {
+            std::println("Prompt file: {}", promptFile.filename);
+        }
 
-        m_conversationHistory.push_back({ .role{ "user" }, .content{ prompt } });
+        m_conversationHistory.push_back(MakePromptMessage(prompt, promptFiles));
 
         // Each policy owns one kind of interruption: a cut-off response, a failed request, a spent turn budget.
         TokenLimitRecovery tokenLimitRecovery;
@@ -142,7 +146,11 @@ struct Session::Pimpl
                 transientMessages.insert(transientMessages.end(), turnLimitRecovery.Messages().begin(), turnLimitRecovery.Messages().end());
                 transientMessages.insert(transientMessages.end(), errorRecovery.Messages().begin(), errorRecovery.Messages().end());
                 transientMessages.insert(transientMessages.end(), tokenLimitRecovery.Messages().begin(), tokenLimitRecovery.Messages().end());
-                json const payload = BuildChatPayload(m_conversationHistory, transientMessages, { .modelName = m_modelName, .tools = m_tools, .maxTokens = m_maxTokens });
+                json const payload = BuildChatPayload(m_conversationHistory, transientMessages, {
+                    .modelName = m_modelName,
+                    .tools = m_tools,
+                    .maxTokens = m_maxTokens,
+                });
                 Log(LogLevel::debug, "m_currentTurn {}: sending {} messages to model '{}' (request saved as log {}_{:03}_request.json)",
                     m_currentTurn, m_conversationHistory.size(), m_modelName, m_log.Id(), m_currentTurn);
 
@@ -351,14 +359,14 @@ struct Session::Pimpl
 
     // Writes the session manifest before the first request and rewrites it with the outcome afterwards; a throw
     // leaves the manifest marked incomplete, which the harness refuses.
-    PromptResult Prompt(std::string_view prompt)
+    PromptResult Prompt(std::string_view prompt, std::span<PromptFile const> promptFiles)
     {
-        m_recorder.BeginSession(m_maxTurns, prompt);
+        m_recorder.BeginSession(m_maxTurns, prompt, BuildPromptFilesJson(promptFiles));
 
         PromptResult result{};
         try
         {
-            result = RunPrompt(prompt);
+            result = RunPrompt(prompt, promptFiles);
         }
         catch (std::exception const& error)
         {
@@ -422,9 +430,9 @@ Session::Session(Session&&) = default;
 
 Session& Session::operator=(Session&&) = default;
 
-Session::PromptResult Session::Prompt(std::string_view prompt)
+Session::PromptResult Session::Prompt(std::string_view prompt, std::span<PromptFile const> promptFiles)
 {
-    return m_pimpl->Prompt(prompt);
+    return m_pimpl->Prompt(prompt, promptFiles);
 }
 
 void Session::GrantTurns(unsigned extraTurns) { m_pimpl->GrantTurns(extraTurns); }

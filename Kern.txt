@@ -7,3 +7,8 @@ Main subdirectories in this workspace:
 - "src/Tools" contains the implementation of AI agent tools.
 All source files must end on a newline.
 The code complies with the C++23 standard, and you should always prefer its more modern features like `std::ranges` and `std::format`.
+
+Which prompt file a piece of agent behaviour belongs in matters, because the harness assembles them at runtime and a rule in the wrong one binds the wrong roles.
+- "data/MainSystemPrompt.txt" is the orchestrator's own instructions, and "data/ImplementSystemPrompt.txt" and "data/ResearchSystemPrompt.txt" are the per-role subagent instructions.
+- "data/CommonSystemPrompt.txt" is appended to all three, so it must hold only behaviour that is identical for a role that can edit files, a role that can only read them, and the orchestrator; guidance only one of them can act on never goes there.
+- Guidance about how work may or may not be changed in scope belongs in the orchestrator prompt and, in a form limited to its narrower powers, in the implementer prompt; the research agent cannot modify the workspace at all, so it needs no such rule.
